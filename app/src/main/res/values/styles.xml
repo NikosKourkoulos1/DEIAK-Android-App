@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.DEIAKWaterNetwork" parent="Theme.AppCompat.Light.DarkActionBar">
-        <item name="colorPrimary">@color/black</item>
-        <item name="colorPrimaryDark">@color/black</item>
-        <item name="colorAccent">@color/purple_500</item>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/deiakBlue</item>
+        <item name="colorPrimaryDark">@color/deiakBlue</item>
+        <item name="colorAccent">@color/deiakCyan</item>
     </style>
 </resources>
