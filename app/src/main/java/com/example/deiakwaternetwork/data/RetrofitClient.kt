@@ -4,7 +4,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
-    private const val BASE_URL = "https://deiak-backend-hsz6.onrender.com/"
+    private const val BASE_URL = "http://192.168.2.5:3000/"
 
     private val retrofit: Retrofit by lazy {
         Retrofit.Builder()

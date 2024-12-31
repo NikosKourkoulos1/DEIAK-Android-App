@@ -7,12 +7,11 @@ import androidx.security.crypto.MasterKeys
 import com.example.deiakwaternetwork.model.LoginRequest
 import com.example.deiakwaternetwork.model.LoginResponse
 import com.example.deiakwaternetwork.model.RegisterRequest
-import com.example.deiakwaternetwork.model.User
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.content.SharedPreferences
 
-class AuthRepository(private val context: Context) { // Pass Context for SharedPreferences
+class AuthRepository(private val context: Context) {
     private val apiService = RetrofitClient.apiService
     private val sharedPrefs = createEncryptedSharedPrefs(context)
 
@@ -23,7 +22,8 @@ class AuthRepository(private val context: Context) { // Pass Context for SharedP
                 if (response.isSuccessful) {
                     val loginResponse = response.body()
                     loginResponse?.let {
-                        storeToken(it.token) // Store token on successful login
+                        storeToken(it.token)
+                        storeUserRole(it.role) // Store the role directly
                     }
                     loginResponse
                 } else {
@@ -37,10 +37,21 @@ class AuthRepository(private val context: Context) { // Pass Context for SharedP
         }
     }
 
+
     suspend fun register(registerRequest: RegisterRequest): Boolean {
         return withContext(Dispatchers.IO) {
             try {
                 val response = apiService.register(registerRequest)
+
+                // Log the response code and message
+                Log.d("AuthRepository", "Registration response: ${response.code()} ${response.message()}")
+
+                // If the response is not successful, log the error body
+                if (!response.isSuccessful) {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("AuthRepository", "Registration error body: $errorBody")
+                }
+
                 response.isSuccessful
             } catch (e: Exception) {
                 Log.e("AuthRepository", "Registration error: ${e.message}")
@@ -48,7 +59,6 @@ class AuthRepository(private val context: Context) { // Pass Context for SharedP
             }
         }
     }
-
     // --- Token Handling ---
 
     private fun storeToken(token: String) {
@@ -59,12 +69,22 @@ class AuthRepository(private val context: Context) { // Pass Context for SharedP
         return sharedPrefs.getString("auth_token", null)
     }
 
+    // --- User Role Handling ---
+
+    private fun storeUserRole(role: String) {
+        sharedPrefs.edit().putString("user_role", role).apply()
+    }
+
+    fun getUserRole(): String? {
+        return sharedPrefs.getString("user_role", null)
+    }
+
     fun isLoggedIn(): Boolean {
         return getToken() != null
     }
 
     fun logout() {
-        sharedPrefs.edit().remove("auth_token").apply()
+        sharedPrefs.edit().clear().apply() // Clear all stored data
     }
 
     // --- Helper Function for EncryptedSharedPreferences ---

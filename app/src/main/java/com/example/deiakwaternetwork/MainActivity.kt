@@ -20,6 +20,9 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.tasks.CancellationTokenSource
 import android.app.ActionBar
+import com.example.deiakwaternetwork.data.AuthRepository
+import android.content.Intent
+
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -29,6 +32,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var locationRequest: LocationRequest
     private var cancellationTokenSource = CancellationTokenSource()
 
+    private lateinit var authRepository: AuthRepository
+
     // Constant for the permission request code
     private val LOCATION_PERMISSION_REQUEST_CODE = 1
     private val REQUEST_CHECK_SETTINGS = 2
@@ -37,25 +42,40 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        supportActionBar?.apply {
-            displayOptions = androidx.appcompat.app.ActionBar.DISPLAY_SHOW_CUSTOM
-            setCustomView(R.layout.logo_bar)
-        }
+        authRepository = AuthRepository(this) // Initialize authRepository
 
-        val mapFragment = supportFragmentManager
-            .findFragmentById(R.id.map) as SupportMapFragment
-        mapFragment.getMapAsync(this)
+        // Check if the user is logged in
+        if (authRepository.isLoggedIn()) {
+            // User is logged in, proceed with MainActivity setup
+            supportActionBar?.apply {
+                displayOptions = androidx.appcompat.app.ActionBar.DISPLAY_SHOW_CUSTOM
+                setCustomView(R.layout.logo_bar)
+            }
 
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        settingsClient = LocationServices.getSettingsClient(this)
+            val mapFragment = supportFragmentManager
+                .findFragmentById(R.id.map) as SupportMapFragment
+            mapFragment.getMapAsync(this)
 
-        // Create a location request
-        locationRequest = LocationRequest.create().apply {
-            interval = 10000 // Update interval in milliseconds
-            fastestInterval = 5000 // Fastest update interval in milliseconds
-            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+            settingsClient = LocationServices.getSettingsClient(this)
+
+            // Create a location request
+            locationRequest = LocationRequest.create().apply {
+                interval = 10000 // Update interval in milliseconds
+                fastestInterval = 5000 // Fastest update interval in milliseconds
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            }
+
+            // ... (The rest of your existing MainActivity setup code) ...
+
+        } else {
+            // User is not logged in, redirect to LoginActivity
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish() // Finish MainActivity to prevent going back
         }
     }
+
+
 
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
