@@ -63,10 +63,18 @@ interface APIService {
     @DELETE("api/network/pipe/{id}")
     suspend fun deletePipe(@Path("id") id: String): Response<Unit>
 
-    @GET("/user/{id}") // Assuming this is your API endpoint for getting user details
+    @GET("api/user/{id}")
     suspend fun getUser(@Path("id") userId: String): Response<User>
 
-    @PUT("user/{id}") // Assuming this is your API endpoint for updating user details
-    suspend fun updateUser(@Path("id") userId: String, @Body user: User): Response<User>
+    @PUT("api/user/{id}")
+    suspend fun updateUser(
+        @Path("id") userId: String,
+        @Body user: User
+    ): Response<User>
+
+    @DELETE("api/user/{id}")
+    suspend fun deleteUser(@Path("id") userId: String): Response<Unit>
+    @GET("api/user/users")
+    suspend fun getAllUsers(): Response<List<User>>
 
 }

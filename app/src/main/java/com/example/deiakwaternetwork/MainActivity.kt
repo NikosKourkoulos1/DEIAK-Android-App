@@ -22,7 +22,14 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import android.app.ActionBar
 import com.example.deiakwaternetwork.data.AuthRepository
 import android.content.Intent
-
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.Toast
+import com.example.deiakwaternetwork.data.UserRepository
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import android.util.Base64
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -38,12 +45,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val LOCATION_PERMISSION_REQUEST_CODE = 1
     private val REQUEST_CHECK_SETTINGS = 2
 
+    private lateinit var userRepository: UserRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         authRepository = AuthRepository(this) // Initialize authRepository
 
+        userRepository = UserRepository(this)
         // Check if the user is logged in
         if (authRepository.isLoggedIn()) {
             // User is logged in, proceed with MainActivity setup
@@ -76,31 +86,157 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
 
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+        val isAdmin = authRepository.getUserRole() == "admin"
+        menu?.findItem(R.id.action_all_users)?.isVisible = isAdmin
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_user_details -> {
+                // Show user details
+                showUserDetails()
+                true
+            }
+            R.id.action_all_users -> {
+                // Show all users (admin only)
+                showAllUsers()
+                true
+            }
+            R.id.action_logout -> {
+                // Handle logout
+                authRepository.logout()
+                startActivity(Intent(this, LoginActivity::class.java))
+                finish()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun showUserDetails() {
+        lifecycleScope.launch {
+            try {
+                val userId = getUserIdFromToken()
+
+                if (userId != null) {
+                    val user = userRepository.getUser(userId)
+                    if (user != null) {
+                        // Create and show the AlertDialog
+                        val dialog = AlertDialog.Builder(this@MainActivity)
+                            .setTitle("User Details")
+                            .setMessage(
+                                "Name: ${user.name}\n" +
+                                        "Email: ${user.email}\n" +
+                                        "Role: ${user.role}"
+                            )
+                            .setPositiveButton("OK") { dialog, _ ->
+                                dialog.dismiss()
+                            }
+                            .create()
+
+                        dialog.show()
+                    } else {
+                        // Handle the case where user data is null
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Failed to fetch user details",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    // Handle the case where userId is null
+                    Toast.makeText(this@MainActivity, "User ID not found", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            } catch (e: Exception) {
+                // Handle exceptions
+                Log.e("MainActivity", "Error fetching user details: ${e.message}")
+                Toast.makeText(
+                    this@MainActivity,
+                    "Failed to fetch user details",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    private fun showAllUsers() {
+        lifecycleScope.launch {
+            try {
+                val users = userRepository.getAllUsers()
+                if (users != null) {
+                    // Format user details with email and role, and number them
+                    val formattedUserList = users.mapIndexed { index, user ->
+                        "${index + 1}. Email: ${user.email}, Role: ${user.role}"
+                    }
+
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("All Users")
+                        .setItems(formattedUserList.toTypedArray()) { dialog, which ->
+                            // Handle user selection if needed (e.g., show details or delete)
+                            // ...
+                        }
+                        .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+                        .show()
+                } else {
+                    // Handle the case where fetching users failed
+                    Toast.makeText(this@MainActivity, "Failed to fetch users", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                // Handle exceptions (e.g., network errors)
+                Log.e("MainActivity", "Error fetching users: ${e.message}")
+                Toast.makeText(this@MainActivity, "Failed to fetch users", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    private fun getUserIdFromToken(): String? {
+        val token = authRepository.getToken()
+        return if (token != null) {
+            try {
+                val parts = token.split(".")
+                val payload = String(Base64.decode(parts[1], Base64.URL_SAFE))
+                val jsonObject = JSONObject(payload)
+                jsonObject.getString("id") // Access the "id" claim
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error decoding token: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+    }
 
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
-/*closed for now to test
-        // Set initial map position to Corfu Island
-        val corfuBounds = LatLngBounds(
-            LatLng(39.45, 19.7), // Southwest corner of Corfu Island
-            LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
-        )
-        // Set initial map position to Corfu Island AND lock the camera to those bounds
-        val cameraUpdate = CameraUpdateFactory.newLatLngBounds(corfuBounds, 0)
-        mMap.moveCamera(cameraUpdate)
+        /*closed for now to test
+                // Set initial map position to Corfu Island
+                val corfuBounds = LatLngBounds(
+                    LatLng(39.45, 19.7), // Southwest corner of Corfu Island
+                    LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
+                )
+                // Set initial map position to Corfu Island AND lock the camera to those bounds
+                val cameraUpdate = CameraUpdateFactory.newLatLngBounds(corfuBounds, 0)
+                mMap.moveCamera(cameraUpdate)
 
-        // Constrain map camera target to Corfu Island (allow zooming)
-        mMap.setOnCameraMoveListener {
-            // Get current camera position
-            val currentCameraPosition = mMap.cameraPosition
+                // Constrain map camera target to Corfu Island (allow zooming)
+                mMap.setOnCameraMoveListener {
+                    // Get current camera position
+                    val currentCameraPosition = mMap.cameraPosition
 
-            // Check if the camera target is within Corfu bounds
-            if (!corfuBounds.contains(currentCameraPosition.target)) {
-                // If the target is outside the bounds, move it back inside
-                mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
-            }
-        }
-*/
+                    // Check if the camera target is within Corfu bounds
+                    if (!corfuBounds.contains(currentCameraPosition.target)) {
+                        // If the target is outside the bounds, move it back inside
+                        mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
+                    }
+                }
+        */
         mMap.setOnMyLocationButtonClickListener {
             checkLocationSettingsAndGetCurrentLocation()
             true
