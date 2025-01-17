@@ -3,10 +3,12 @@ import com.example.deiakwaternetwork.data.RetrofitClient
 import com.example.deiakwaternetwork.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.content.Context
 
 
-class NodeRepository {
-    private val apiService = RetrofitClient.apiService
+class NodeRepository(private val context: Context) {
+    private val apiService = RetrofitClient.create(context) // Initialize apiService
+
 
     suspend fun getNodes(): List<Node>? {
         return withContext(Dispatchers.IO) {
@@ -41,6 +43,7 @@ class NodeRepository {
             }
         }
     }
+
 
     suspend fun updateNode(id: String, node: Node): Node? {
         return withContext(Dispatchers.IO) {

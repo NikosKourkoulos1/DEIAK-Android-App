@@ -1,11 +1,12 @@
+import android.content.Context
 import android.util.Log
 import com.example.deiakwaternetwork.data.RetrofitClient
 import com.example.deiakwaternetwork.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class PipeRepository {
-    private val apiService = RetrofitClient.apiService
+class PipeRepository(private val context: Context) {
+    private val apiService = RetrofitClient.create(context) // Initialize apiService
 
     suspend fun getPipes(): List<Pipe>? {
         return withContext(Dispatchers.IO) {

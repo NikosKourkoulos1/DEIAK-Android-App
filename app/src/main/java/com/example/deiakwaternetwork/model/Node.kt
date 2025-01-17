@@ -1,7 +1,6 @@
 package com.example.deiakwaternetwork.model
 
 data class Node(
-    val _id: String,
     val name: String,
     val type: String,
     val location: Location,

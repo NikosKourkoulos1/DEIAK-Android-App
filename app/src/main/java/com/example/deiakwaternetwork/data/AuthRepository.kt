@@ -11,8 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.content.SharedPreferences
 
+
+
 class AuthRepository(private val context: Context) {
-    private val apiService = RetrofitClient.apiService
+    private val apiService = RetrofitClient.create(context)
     private val sharedPrefs = createEncryptedSharedPrefs(context)
 
     suspend fun login(loginRequest: LoginRequest): LoginResponse? {

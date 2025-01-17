@@ -1,5 +1,6 @@
 package com.example.deiakwaternetwork
 
+import NodeRepository
 import android.Manifest
 import android.content.IntentSender
 import android.content.pm.PackageManager
@@ -29,7 +30,16 @@ import com.example.deiakwaternetwork.data.UserRepository
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import android.util.Base64
+import android.view.View
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import org.json.JSONObject
+import android.view.LayoutInflater
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.Spinner
+import com.example.deiakwaternetwork.model.Node
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.MarkerOptions
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -46,7 +56,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val REQUEST_CHECK_SETTINGS = 2
 
     private lateinit var userRepository: UserRepository
-
+    private lateinit var nodeRepository: NodeRepository
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -54,6 +64,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         authRepository = AuthRepository(this) // Initialize authRepository
 
         userRepository = UserRepository(this)
+
+        nodeRepository = NodeRepository(this)
+
         // Check if the user is logged in
         if (authRepository.isLoggedIn()) {
             // User is logged in, proceed with MainActivity setup
@@ -215,6 +228,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
+        val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
         /*closed for now to test
                 // Set initial map position to Corfu Island
                 val corfuBounds = LatLngBounds(
@@ -242,6 +256,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             true
         }
 
+        if (::nodeRepository.isInitialized) { // Check if nodeRepository is initialized
+            lifecycleScope.launch {
+                val nodes = nodeRepository.getNodes()
+                nodes?.forEach { node ->
+                    addMarkerToMap(node)
+                }
+            }
+        } else {
+            // Handle the case where nodeRepository is not initialized
+            Log.e("MainActivity", "nodeRepository is not initialized")
+            Toast.makeText(this, "Error initializing map", Toast.LENGTH_SHORT).show()
+        }
+
+        lifecycleScope.launch {
+            val nodes = nodeRepository.getNodes()
+            nodes?.forEach { node ->
+                addMarkerToMap(node)
+            }
+        }
+
+        if (authRepository.getUserRole() == "admin") {
+            fabAddNode.visibility = View.VISIBLE
+        }
+
+        fabAddNode.setOnClickListener {
+            Toast.makeText(this, "Click on the map to add a node", Toast.LENGTH_SHORT).show()
+            mMap.setOnMapClickListener { latLng ->
+                showNodeCreationDialog(latLng)
+                mMap.setOnMapClickListener(null)
+            }
+        }
+
         // GPS Location (with permission check)
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -262,6 +308,89 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         mMap.isMyLocationEnabled = true
     }
 
+    private fun showNodeCreationDialog(latLng: LatLng) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_node_creation, null)
+
+        // Get references to EditText fields and Spinner
+        val etNodeName = dialogView.findViewById<EditText>(R.id.etNodeName)
+        val spinnerNodeType = dialogView.findViewById<Spinner>(R.id.spinnerNodeType)
+        val etNodeCapacity = dialogView.findViewById<EditText>(R.id.etNodeCapacity)
+        val spinnerNodeStatus = dialogView.findViewById<Spinner>(R.id.spinnerNodeStatus) // Use a Spinner for status
+        val etNodeDescription = dialogView.findViewById<EditText>(R.id.etNodeDescription)
+
+        // Set up Spinner adapter for node types
+        val nodeTypes = arrayOf("Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή")
+        val typeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeTypes)
+        typeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerNodeType.adapter = typeAdapter
+
+        // Set up Spinner adapter for node status
+        val nodeStatuses = arrayOf("active", "maintenance", "inactive") // Allowed status values
+        val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeStatuses)
+        statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerNodeStatus.adapter = statusAdapter
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setTitle("Create New Node")
+            .setPositiveButton("Create") { dialog, _ ->
+                val name = etNodeName.text.toString()
+                val type = spinnerNodeType.selectedItem.toString()
+                val capacity = etNodeCapacity.text.toString().toIntOrNull()
+                val status = spinnerNodeStatus.selectedItem.toString() // Get value from status Spinner
+                val description = etNodeDescription.text.toString()
+
+                val newNode = Node(
+                    name = name,
+                    type = type,
+                    location = com.example.deiakwaternetwork.model.Location(latLng.latitude, latLng.longitude),
+                    capacity = capacity,
+                    status = status,
+                    description = description,
+                    createdAt = "",
+                    updatedAt = ""
+                )
+                createNodeAndAddMarker(newNode)
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+    }
+
+    private fun createNodeAndAddMarker(node: Node) {
+        lifecycleScope.launch {
+            val createdNode = nodeRepository.createNode(node)  // Call the API using your repository
+            if (createdNode != null) {
+                // Add marker to the map
+                addMarkerToMap(createdNode)
+                // Optionally, you can show a success message
+                Toast.makeText(this@MainActivity, "Node created successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                // Handle error (e.g., show a Toast)
+                Toast.makeText(this@MainActivity, "Failed to create node", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun addMarkerToMap(node: Node) {
+        val latLng = LatLng(node.location.latitude, node.location.longitude)
+        val markerIcon = when (node.type) {
+            "Κλειδί" -> BitmapDescriptorFactory.fromResource(R.drawable.kleidi_icon)
+            "Πρυσβεστικός Κρουνός" -> BitmapDescriptorFactory.fromResource(R.drawable.krounos_icon)
+            "Ταφ" -> BitmapDescriptorFactory.fromResource(R.drawable.taf_icon) // Example
+            "Γωνία" -> BitmapDescriptorFactory.fromResource(R.drawable.gonia_icon) // Example
+            "Κολεκτέρ" -> BitmapDescriptorFactory.fromResource(R.drawable.kolekter_icon) // Example
+            "Παροχή" -> BitmapDescriptorFactory.fromResource(R.drawable.paroxi_icon) // Example
+            else -> BitmapDescriptorFactory.defaultMarker() // Default icon if type not found
+        }
+
+        mMap.addMarker(
+            MarkerOptions()
+            .position(latLng)
+            .title(node.name)
+            .icon(markerIcon)
+        )
+    }
     // Handle the permission request response
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -361,6 +490,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Log.e("LocationService", "Error getting current location: ${exception.message}")
             }
     }
+
 
     override fun onStop() {
         super.onStop()
