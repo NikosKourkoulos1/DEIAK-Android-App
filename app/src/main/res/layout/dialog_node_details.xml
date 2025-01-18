@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvNodeName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Name:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeNameValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Name Value" />
+
+    <TextView
+        android:id="@+id/tvNodeType"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Type:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeTypeValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Type Value" />
+
+    <TextView
+        android:id="@+id/tvNodeLocation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Location:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeLocationValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Location Value" />
+
+    <TextView
+        android:id="@+id/tvNodeCapacity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Capacity:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeCapacityValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Capacity Value" />
+
+    <TextView
+        android:id="@+id/tvNodeStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Status:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeStatusValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Status Value" />
+
+    <TextView
+        android:id="@+id/tvNodeDescription"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Description:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvNodeDescriptionValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Node Description Value" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnEditNode"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Edit"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnClose"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Close" />
+    </LinearLayout>
+
+</LinearLayout>

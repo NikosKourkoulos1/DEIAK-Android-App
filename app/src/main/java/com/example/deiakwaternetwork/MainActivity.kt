@@ -42,6 +42,8 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.MarkerOptions
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.widget.TextView
+import com.google.android.gms.maps.model.Marker
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -59,6 +61,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private lateinit var userRepository: UserRepository
     private lateinit var nodeRepository: NodeRepository
+    private var nodes: List<Node>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -272,9 +276,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         lifecycleScope.launch {
-            val nodes = nodeRepository.getNodes()
+            nodes = nodeRepository.getNodes() // Assign the fetched list to nodes
             nodes?.forEach { node ->
                 addMarkerToMap(node)
+            }
+
+            // Set the marker click listener after fetching the nodes
+            mMap.setOnMarkerClickListener { marker ->
+                val node = nodes?.find { it.name == marker.title } // Access nodes here
+                if (node != null) {
+                    showNodeDetailsDialog(node)
+                }
+                true
             }
         }
 
@@ -539,6 +552,36 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Log.e("LocationService", "Error getting current location: ${exception.message}")
             }
     }
+
+    private fun showNodeDetailsDialog(node: Node) {
+        val builder = AlertDialog.Builder(this)
+        val view = layoutInflater.inflate(R.layout.dialog_node_details, null)
+
+        val tvNodeNameValue = view.findViewById<TextView>(R.id.tvNodeNameValue)
+        val tvNodeTypeValue = view.findViewById<TextView>(R.id.tvNodeTypeValue)
+        val tvNodeLocationValue = view.findViewById<TextView>(R.id.tvNodeLocationValue)
+        val tvNodeCapacityValue = view.findViewById<TextView>(R.id.tvNodeCapacityValue)
+        val tvNodeStatusValue = view.findViewById<TextView>(R.id.tvNodeStatusValue)
+        val tvNodeDescriptionValue = view.findViewById<TextView>(R.id.tvNodeDescriptionValue)
+
+        tvNodeNameValue.text = node.name
+        tvNodeTypeValue.text = node.type
+        tvNodeLocationValue.text = "${node.location.latitude}, ${node.location.longitude}"
+        tvNodeCapacityValue.text = node.capacity?.toString() ?: "N/A"
+        tvNodeStatusValue.text = node.status
+        tvNodeDescriptionValue.text = node.description
+
+        builder.setView(view)
+            .setTitle("Node Details")
+            .setNegativeButton("Close") { dialog, _ ->
+                dialog.dismiss()
+            }
+
+        val dialog = builder.create()
+        dialog.show()
+    }
+
+
 
 
     override fun onStop() {
