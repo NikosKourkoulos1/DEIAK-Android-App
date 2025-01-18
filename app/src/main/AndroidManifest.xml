@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="true"
@@ -21,7 +22,7 @@
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="MAPS_API_KEY" />
+            android:value="AIzaSyCVbqlYfcmN7BAnbG4_4OdbEZP64J5k2fY" />
 
         <activity
             android:name=".MainActivity"

@@ -13,5 +13,11 @@
     <string name="user_details">User Details</string>
     <string name="all_users">All Users</string>
     <string name="logout">Logout</string>
+    <string-array name="node_statuses">
+        <item>Status</item>
+        <item>active</item>
+        <item>maintenance</item>
+        <item>inactive</item>
+    </string-array>
 
 </resources>

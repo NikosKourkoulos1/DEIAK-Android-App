@@ -40,6 +40,8 @@ import android.widget.Spinner
 import com.example.deiakwaternetwork.model.Node
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.MarkerOptions
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -229,28 +231,28 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
         val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
-        /*closed for now to test
-                // Set initial map position to Corfu Island
-                val corfuBounds = LatLngBounds(
-                    LatLng(39.45, 19.7), // Southwest corner of Corfu Island
-                    LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
-                )
-                // Set initial map position to Corfu Island AND lock the camera to those bounds
-                val cameraUpdate = CameraUpdateFactory.newLatLngBounds(corfuBounds, 0)
-                mMap.moveCamera(cameraUpdate)
 
-                // Constrain map camera target to Corfu Island (allow zooming)
-                mMap.setOnCameraMoveListener {
-                    // Get current camera position
-                    val currentCameraPosition = mMap.cameraPosition
+        // Set initial map position to Corfu Island
+        val corfuBounds = LatLngBounds(
+            LatLng(39.45, 19.7), // Southwest corner of Corfu Island
+            LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
+        )
+        // Set initial map position to Corfu Island AND lock the camera to those bounds
+        val cameraUpdate = CameraUpdateFactory.newLatLngBounds(corfuBounds, 0)
+        mMap.moveCamera(cameraUpdate)
 
-                    // Check if the camera target is within Corfu bounds
-                    if (!corfuBounds.contains(currentCameraPosition.target)) {
-                        // If the target is outside the bounds, move it back inside
-                        mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
-                    }
-                }
-        */
+        // Constrain map camera target to Corfu Island (allow zooming)
+        mMap.setOnCameraMoveListener {
+            // Get current camera position
+            val currentCameraPosition = mMap.cameraPosition
+
+            // Check if the camera target is within Corfu bounds
+            if (!corfuBounds.contains(currentCameraPosition.target)) {
+                // If the target is outside the bounds, move it back inside
+                mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
+            }
+        }
+
         mMap.setOnMyLocationButtonClickListener {
             checkLocationSettingsAndGetCurrentLocation()
             true
@@ -315,7 +317,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val etNodeName = dialogView.findViewById<EditText>(R.id.etNodeName)
         val spinnerNodeType = dialogView.findViewById<Spinner>(R.id.spinnerNodeType)
         val etNodeCapacity = dialogView.findViewById<EditText>(R.id.etNodeCapacity)
-        val spinnerNodeStatus = dialogView.findViewById<Spinner>(R.id.spinnerNodeStatus) // Use a Spinner for status
+        val spinnerNodeStatus = dialogView.findViewById<Spinner>(R.id.spinnerNodeStatus)
         val etNodeDescription = dialogView.findViewById<EditText>(R.id.etNodeDescription)
 
         // Set up Spinner adapter for node types
@@ -324,8 +326,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         typeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerNodeType.adapter = typeAdapter
 
-        // Set up Spinner adapter for node status
-        val nodeStatuses = arrayOf("active", "maintenance", "inactive") // Allowed status values
+        // Set up Spinner adapter for node status (optional field)
+        val nodeStatuses = resources.getStringArray(R.array.node_statuses)
         val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeStatuses)
         statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerNodeStatus.adapter = statusAdapter
@@ -333,11 +335,30 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setTitle("Create New Node")
-            .setPositiveButton("Create") { dialog, _ ->
-                val name = etNodeName.text.toString()
+            .setPositiveButton("Create", null) // Set to null initially to override onClick
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val createButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            createButton.setOnClickListener {
+                val name = etNodeName.text.toString().trim() // Trim whitespace
                 val type = spinnerNodeType.selectedItem.toString()
+
+                // Validation: Check if name and type are empty
+                if (name.isEmpty()) {
+                    etNodeName.error = "Name is required"
+                    return@setOnClickListener // Don't dismiss the dialog
+                }
+
+                if (type.isEmpty()) {
+                    Toast.makeText(this, "Please select a node type", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener // Don't dismiss the dialog
+                }
+
+                // Get optional values (capacity, status, description)
                 val capacity = etNodeCapacity.text.toString().toIntOrNull()
-                val status = spinnerNodeStatus.selectedItem.toString() // Get value from status Spinner
+                val status = spinnerNodeStatus.selectedItem.toString()
                 val description = etNodeDescription.text.toString()
 
                 val newNode = Node(
@@ -351,9 +372,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     updatedAt = ""
                 )
                 createNodeAndAddMarker(newNode)
+                dialog.dismiss() // Dismiss the dialog on success
             }
-            .setNegativeButton("Cancel", null)
-            .create()
+        }
+
         dialog.show()
     }
 
@@ -374,22 +396,49 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun addMarkerToMap(node: Node) {
         val latLng = LatLng(node.location.latitude, node.location.longitude)
-        val markerIcon = when (node.type) {
-            "Κλειδί" -> BitmapDescriptorFactory.fromResource(R.drawable.kleidi_icon)
-            "Πρυσβεστικός Κρουνός" -> BitmapDescriptorFactory.fromResource(R.drawable.krounos_icon)
-            "Ταφ" -> BitmapDescriptorFactory.fromResource(R.drawable.taf_icon) // Example
-            "Γωνία" -> BitmapDescriptorFactory.fromResource(R.drawable.gonia_icon) // Example
-            "Κολεκτέρ" -> BitmapDescriptorFactory.fromResource(R.drawable.kolekter_icon) // Example
-            "Παροχή" -> BitmapDescriptorFactory.fromResource(R.drawable.paroxi_icon) // Example
-            else -> BitmapDescriptorFactory.defaultMarker() // Default icon if type not found
+
+        // Assuming you want the icon to be 48dp wide (adjust as needed)
+        val iconWidthDp = 48
+        val iconHeightDp = 48 // Assuming a square icon, adjust if necessary
+
+        // Convert dp to pixels
+        val density = resources.displayMetrics.density
+        val iconWidthPx = (iconWidthDp * density).toInt()
+        val iconHeightPx = (iconHeightDp * density).toInt()
+
+        // Get the appropriate icon based on node type
+        val markerIconResource = when (node.type) {
+            "Κλειδί" -> R.drawable.kleidi_icon
+            "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
+            "Ταφ" -> R.drawable.taf_icon
+            "Γωνία" -> R.drawable.gonia_icon
+            "Κολεκτέρ" -> R.drawable.kolekter_icon
+            "Παροχή" -> R.drawable.paroxi_icon
+            else -> null // Handle the case where the type is not recognized
         }
 
-        mMap.addMarker(
-            MarkerOptions()
-            .position(latLng)
-            .title(node.name)
-            .icon(markerIcon)
-        )
+        // Check if a valid icon resource was found
+        if (markerIconResource != null) {
+            // Get the original bitmap
+            val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
+
+            // Resize the bitmap
+            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
+
+            // Create a BitmapDescriptor from the resized bitmap
+            val markerIcon = BitmapDescriptorFactory.fromBitmap(resizedBitmap)
+
+            mMap.addMarker(
+                MarkerOptions()
+                    .position(latLng)
+                    .title(node.name)
+                    .icon(markerIcon)
+                    .anchor(0.5f, 1.0f) // Set anchor to bottom-center
+            )
+        } else {
+            // Handle the case where the node type is not recognized (e.g., log an error message)
+            Log.e("addMarkerToMap", "Unrecognized node type: ${node.type}")
+        }
     }
     // Handle the permission request response
     override fun onRequestPermissionsResult(
