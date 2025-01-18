@@ -35,7 +35,7 @@ interface APIService {
     suspend fun createNode(@Body node: Node): Response<Node>
 
     @PUT("api/network/node/{id}")
-    suspend fun updateNode(@Path("id") id: String, @Body node: Node): Response<Node>
+    suspend fun updateNode(@Path("id") nodeId: String, @Body updatedNode: Node): Response<Node>
 
     @DELETE("api/network/node/{id}")
     suspend fun deleteNode(@Path("id") id: String): Response<Unit>

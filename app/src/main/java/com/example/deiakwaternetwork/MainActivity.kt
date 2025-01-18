@@ -42,8 +42,14 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.MarkerOptions
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.widget.Button
 import android.widget.TextView
+import com.example.deiakwaternetwork.data.APIService
+import com.example.deiakwaternetwork.data.RetrofitClient
+import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.Marker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -62,9 +68,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var userRepository: UserRepository
     private lateinit var nodeRepository: NodeRepository
     private var nodes: List<Node>? = null
+    private val nodesMap: MutableMap<Marker, Node> = mutableMapOf()
+    private lateinit var apiService: APIService
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        apiService = RetrofitClient.create(this)
         setContentView(R.layout.activity_main)
 
         authRepository = AuthRepository(this) // Initialize authRepository
@@ -276,17 +286,23 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         lifecycleScope.launch {
-            nodes = nodeRepository.getNodes() // Assign the fetched list to nodes
+            nodes = nodeRepository.getNodes()
             nodes?.forEach { node ->
-                addMarkerToMap(node)
+                val location = LatLng(node.location.latitude, node.location.longitude)
+                val marker = mMap.addMarker(
+                    MarkerOptions()
+                        .position(location)
+                        .title(node.name)
+                        .icon(getMarkerIconFromType(node.type))
+                )
+
+                // Add marker and node to nodesMap
+                marker?.let { nodesMap[it] = node }
             }
 
-            // Set the marker click listener after fetching the nodes
+            // Set the marker click listener
             mMap.setOnMarkerClickListener { marker ->
-                val node = nodes?.find { it.name == marker.title } // Access nodes here
-                if (node != null) {
-                    showNodeDetailsDialog(node)
-                }
+                showNodeDetailsDialog(marker)
                 true
             }
         }
@@ -553,7 +569,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
     }
 
-    private fun showNodeDetailsDialog(node: Node) {
+    private fun showNodeDetailsDialog(marker: Marker) {
+
+        val node = nodesMap[marker] ?: return
+
         val builder = AlertDialog.Builder(this)
         val view = layoutInflater.inflate(R.layout.dialog_node_details, null)
 
@@ -564,6 +583,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val tvNodeStatusValue = view.findViewById<TextView>(R.id.tvNodeStatusValue)
         val tvNodeDescriptionValue = view.findViewById<TextView>(R.id.tvNodeDescriptionValue)
 
+        val btnEditNode = view.findViewById<Button>(R.id.btnEditNode)
+        val btnClose = view.findViewById<Button>(R.id.btnClose)
+
+        if (authRepository.getUserRole() == "admin") {
+            btnEditNode.visibility = View.VISIBLE
+        }
+
         tvNodeNameValue.text = node.name
         tvNodeTypeValue.text = node.type
         tvNodeLocationValue.text = "${node.location.latitude}, ${node.location.longitude}"
@@ -573,17 +599,163 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         builder.setView(view)
             .setTitle("Node Details")
-            .setNegativeButton("Close") { dialog, _ ->
-                dialog.dismiss()
-            }
 
         val dialog = builder.create()
+
+        btnClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnEditNode.setOnClickListener {
+            dialog.dismiss()
+            showEditNodeDialog(node, marker)
+        }
+
+        dialog.show()
+    }
+
+    private fun showEditNodeDialog(node: Node, marker: Marker) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_node_edit, null)
+
+        val etNodeName = dialogView.findViewById<EditText>(R.id.etNodeName)
+        val spinnerNodeType = dialogView.findViewById<Spinner>(R.id.spinnerNodeType)
+        val etNodeCapacity = dialogView.findViewById<EditText>(R.id.etNodeCapacity)
+        val spinnerNodeStatus = dialogView.findViewById<Spinner>(R.id.spinnerNodeStatus)
+        val etNodeDescription = dialogView.findViewById<EditText>(R.id.etNodeDescription)
+
+        val nodeTypes = arrayOf("Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή")
+        val typeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeTypes)
+        typeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerNodeType.adapter = typeAdapter
+
+        val nodeStatuses = resources.getStringArray(R.array.node_statuses)
+        val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeStatuses)
+        statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerNodeStatus.adapter = statusAdapter
+
+        etNodeName.setText(node.name)
+        spinnerNodeType.setSelection(typeAdapter.getPosition(node.type))
+        etNodeCapacity.setText(node.capacity?.toString() ?: "")
+        spinnerNodeStatus.setSelection(statusAdapter.getPosition(node.status))
+        etNodeDescription.setText(node.description)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setTitle("Edit Node")
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            saveButton.setOnClickListener {
+                val updatedName = etNodeName.text.toString().trim()
+                val updatedType = spinnerNodeType.selectedItem.toString()
+                val updatedCapacity = etNodeCapacity.text.toString().toIntOrNull()
+                val updatedStatus = spinnerNodeStatus.selectedItem.toString()
+                val updatedDescription = etNodeDescription.text.toString()
+
+                if (updatedName.isEmpty() || updatedType.isEmpty()) {
+                    Toast.makeText(this, "Name and type are required", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                // Create an updated node object (including the _id)
+                val updatedNode = node.copy(
+                    name = updatedName,
+                    type = updatedType,
+                    capacity = updatedCapacity,
+                    status = updatedStatus,
+                    description = updatedDescription
+                )
+
+                // Pass apiService to updateNodeInBackend
+                updateNodeInBackend(node._id, updatedNode, marker, apiService)
+                dialog.dismiss()
+            }
+        }
+
         dialog.show()
     }
 
 
 
 
+
+    private fun updateNodeInBackend(nodeId: String, updatedNode: Node, marker: Marker, apiService: APIService) {
+        lifecycleScope.launch {
+            try {
+                // Use the passed apiService instance
+                val response = withContext(Dispatchers.IO) {
+                    apiService.updateNode(nodeId, updatedNode)
+                }
+
+                if (response.isSuccessful) {
+                    // Update the node in nodesMap
+                    nodesMap[marker]?.let { existingNode ->
+                        nodesMap[marker] = existingNode.copy(
+                            name = updatedNode.name,
+                            type = updatedNode.type,
+                            capacity = updatedNode.capacity,
+                            status = updatedNode.status,
+                            description = updatedNode.description
+                        )
+                    }
+
+                    // Refresh the marker
+                    marker.title = updatedNode.name
+                    marker.snippet = updatedNode.type
+                    marker.setIcon(getMarkerIconFromType(updatedNode.type))
+
+                    Toast.makeText(this@MainActivity, "Node updated successfully", Toast.LENGTH_SHORT).show()
+                } else {
+                    // Log the error response body for debugging
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("MainActivity", "Failed to update node: ${response.code()} - $errorBody")
+                    Toast.makeText(this@MainActivity, "Failed to update node", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Exception when updating node: ${e.message}")
+                Toast.makeText(this@MainActivity, "Failed to update node", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun getMarkerIconFromType(nodeType: String): BitmapDescriptor {
+        val iconWidthDp = 48
+        val iconHeightDp = 48 // Assuming a square icon, adjust if necessary
+
+        // Convert dp to pixels
+        val density = resources.displayMetrics.density
+        val iconWidthPx = (iconWidthDp * density).toInt()
+        val iconHeightPx = (iconHeightDp * density).toInt()
+
+        // Get the appropriate icon resource based on node type
+        val markerIconResource = when (nodeType) {
+            "Κλειδί" -> R.drawable.kleidi_icon
+            "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
+            "Ταφ" -> R.drawable.taf_icon
+            "Γωνία" -> R.drawable.gonia_icon
+            "Κολεκτέρ" -> R.drawable.kolekter_icon
+            "Παροχή" -> R.drawable.paroxi_icon
+            else -> {
+                Log.e("getMarkerIconFromType", "Unrecognized node type: $nodeType")
+                null
+            } // Handle unrecognized types
+        }
+
+        return if (markerIconResource != null) {
+            // Resize the bitmap
+            val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
+            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
+
+            // Create and return a BitmapDescriptor
+            BitmapDescriptorFactory.fromBitmap(resizedBitmap)
+        } else {
+            // Return a default marker if no icon is found
+            BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+        }
+    }
     override fun onStop() {
         super.onStop()
         // Cancels location request (if in flight)
