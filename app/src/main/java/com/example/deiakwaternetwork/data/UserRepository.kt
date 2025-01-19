@@ -7,7 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class UserRepository(private val context: Context) {
-    private val apiService = RetrofitClient.create(context) // Initialize apiService
+    private val apiService = RetrofitClient.getApiService(context)
 
     suspend fun getUser(userId: String): User? {
         return withContext(Dispatchers.IO) {

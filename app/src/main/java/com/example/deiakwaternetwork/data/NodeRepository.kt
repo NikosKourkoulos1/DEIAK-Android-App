@@ -7,7 +7,7 @@ import android.content.Context
 
 
 class NodeRepository(private val context: Context) {
-    private val apiService = RetrofitClient.create(context) // Initialize apiService
+    private val apiService = RetrofitClient.getApiService(context)
 
 
     suspend fun getNodes(): List<Node>? {
@@ -30,15 +30,15 @@ class NodeRepository(private val context: Context) {
     suspend fun createNode(node: Node): Node? {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.createNode(node)
+                val response = apiService.createNode(node) // Make sure this is a POST request
                 if (response.isSuccessful) {
                     response.body()
                 } else {
-                    Log.e("NodeRepository", "Error creating node: ${response.code()} ${response.message()}")
+                    Log.e("NodeRepository", "Error creating node: ${response.code()} ${response.message()}") // Log error details
                     null
                 }
             } catch (e: Exception) {
-                Log.e("NodeRepository", "Error creating node: ${e.message}")
+                Log.e("NodeRepository", "Exception creating node: ${e.message}")
                 null
             }
         }

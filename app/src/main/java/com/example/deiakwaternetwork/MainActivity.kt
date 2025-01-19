@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        apiService = RetrofitClient.create(this)
+        apiService = RetrofitClient.getApiService(this)
         setContentView(R.layout.activity_main)
 
         authRepository = AuthRepository(this) // Initialize authRepository
@@ -296,12 +296,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         .icon(getMarkerIconFromType(node.type))
                 )
 
-                // Add marker and node to nodesMap
-                marker?.let { nodesMap[it] = node }
+                // Add marker and node to nodesMap only if _id is not null
+                if (!node._id.isNullOrEmpty()) {
+                    marker?.let { nodesMap[it] = node }
+                }
             }
 
-            // Set the marker click listener
             mMap.setOnMarkerClickListener { marker ->
+                // Pass the marker to showNodeDetailsDialog
                 showNodeDetailsDialog(marker)
                 true
             }
@@ -391,6 +393,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val description = etNodeDescription.text.toString()
 
                 val newNode = Node(
+                    _id = null,
                     name = name,
                     type = type,
                     location = com.example.deiakwaternetwork.model.Location(latLng.latitude, latLng.longitude),
@@ -410,14 +413,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun createNodeAndAddMarker(node: Node) {
         lifecycleScope.launch {
-            val createdNode = nodeRepository.createNode(node)  // Call the API using your repository
+            val createdNode = nodeRepository.createNode(node)
             if (createdNode != null) {
-                // Add marker to the map
+                // Add marker to the map (assuming addMarkerToMap handles this)
                 addMarkerToMap(createdNode)
-                // Optionally, you can show a success message
                 Toast.makeText(this@MainActivity, "Node created successfully", Toast.LENGTH_SHORT).show()
             } else {
-                // Handle error (e.g., show a Toast)
+                // Handle error
                 Toast.makeText(this@MainActivity, "Failed to create node", Toast.LENGTH_SHORT).show()
             }
         }
@@ -584,10 +586,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val tvNodeDescriptionValue = view.findViewById<TextView>(R.id.tvNodeDescriptionValue)
 
         val btnEditNode = view.findViewById<Button>(R.id.btnEditNode)
+        val btnDeleteNode = view.findViewById<Button>(R.id.btnDeleteNode)
         val btnClose = view.findViewById<Button>(R.id.btnClose)
 
         if (authRepository.getUserRole() == "admin") {
             btnEditNode.visibility = View.VISIBLE
+            btnDeleteNode.visibility = View.VISIBLE
         }
 
         tvNodeNameValue.text = node.name
@@ -608,7 +612,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         btnEditNode.setOnClickListener {
             dialog.dismiss()
-            showEditNodeDialog(node, marker)
+            showEditNodeDialog(node, marker) // Pass the node and marker
+        }
+
+        btnDeleteNode.setOnClickListener {
+            dialog.dismiss()
+            AlertDialog.Builder(this)
+                .setTitle("Confirm Delete")
+                .setMessage("Are you sure you want to delete this node?")
+                .setPositiveButton("Delete") { _, _ ->
+                    deleteNode(node, marker)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         dialog.show()
@@ -660,17 +676,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     return@setOnClickListener
                 }
 
-                // Create an updated node object (including the _id)
+                // Create an updated node object, including the _id
                 val updatedNode = node.copy(
                     name = updatedName,
                     type = updatedType,
                     capacity = updatedCapacity,
                     status = updatedStatus,
                     description = updatedDescription
+                    // createdAt and updatedAt should be managed by the backend
                 )
 
-                // Pass apiService to updateNodeInBackend
-                updateNodeInBackend(node._id, updatedNode, marker, apiService)
+                // Call updateNodeInBackend with the _id
+                updateNodeInBackend(node._id!!, updatedNode, marker) // Now we are passing the _id
                 dialog.dismiss()
             }
         }
@@ -679,33 +696,28 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
 
-
-
-
-    private fun updateNodeInBackend(nodeId: String, updatedNode: Node, marker: Marker, apiService: APIService) {
+    private fun updateNodeInBackend(nodeId: String, updatedNode: Node, marker: Marker) {
         lifecycleScope.launch {
             try {
-                // Use the passed apiService instance
                 val response = withContext(Dispatchers.IO) {
                     apiService.updateNode(nodeId, updatedNode)
                 }
 
                 if (response.isSuccessful) {
-                    // Update the node in nodesMap
-                    nodesMap[marker]?.let { existingNode ->
-                        nodesMap[marker] = existingNode.copy(
-                            name = updatedNode.name,
-                            type = updatedNode.type,
-                            capacity = updatedNode.capacity,
-                            status = updatedNode.status,
-                            description = updatedNode.description
-                        )
-                    }
+                    // Remove the old marker
+                    marker.remove()
 
-                    // Refresh the marker
-                    marker.title = updatedNode.name
-                    marker.snippet = updatedNode.type
-                    marker.setIcon(getMarkerIconFromType(updatedNode.type))
+                    // Add a new marker with updated details
+                    val newMarker = mMap.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(updatedNode.location.latitude, updatedNode.location.longitude))
+                            .title(updatedNode.name)
+                            .icon(getMarkerIconFromType(updatedNode.type))
+                    )
+
+                    // Update nodesMap with the new marker and updated node
+                    nodesMap.remove(marker) // Remove the old marker-node association
+                    newMarker?.let { nodesMap[it] = updatedNode } // Add the new marker-node association
 
                     Toast.makeText(this@MainActivity, "Node updated successfully", Toast.LENGTH_SHORT).show()
                 } else {
@@ -756,6 +768,36 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
         }
     }
+
+    private fun deleteNode(node: Node, marker: Marker) {
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    apiService.deleteNode(node._id!!) // Assuming your deleteNode API call takes the node ID
+                }
+
+                if (response.isSuccessful) {
+                    // Remove the marker from the map
+                    marker.remove()
+
+                    // Remove the node from nodesMap
+                    nodesMap.remove(marker)
+
+                    // Optionally, update your 'nodes' list if you are using it for other purposes
+
+                    Toast.makeText(this@MainActivity, "Node deleted successfully", Toast.LENGTH_SHORT).show()
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("MainActivity", "Failed to delete node: ${response.code()} - $errorBody")
+                    Toast.makeText(this@MainActivity, "Failed to delete node", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Exception when deleting node: ${e.message}")
+                Toast.makeText(this@MainActivity, "Failed to delete node", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         // Cancels location request (if in flight)
