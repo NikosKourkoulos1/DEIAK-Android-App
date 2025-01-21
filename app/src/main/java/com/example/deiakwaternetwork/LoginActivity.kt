@@ -53,7 +53,7 @@ class LoginActivity : AppCompatActivity() {
                     val loginResponse = authRepository.login(loginRequest)
                     if (loginResponse != null) {
                         // Login successful
-                        Log.d("LoginActivity", "Login successful: ${loginResponse.token}")
+                        Log.d("LoginActivity", "Login successful: ${loginResponse.accessToken}") // Access accessToken
                         // Start MainActivity or the appropriate Activity
                         startActivity(Intent(this@LoginActivity, MainActivity::class.java))
                         finish() // Optional: Finish LoginActivity to prevent going back
@@ -64,6 +64,7 @@ class LoginActivity : AppCompatActivity() {
                 }
             }
         }
+
 
         registerTextView.setOnClickListener {
             startActivity(Intent(this, RegistrationActivity::class.java))

@@ -24,8 +24,9 @@ class AuthRepository(private val context: Context) {
                 if (response.isSuccessful) {
                     val loginResponse = response.body()
                     loginResponse?.let {
-                        storeToken(it.token)
-                        storeUserRole(it.role) // Store the role directly
+                        storeToken(it.accessToken) // Store accessToken
+                        storeRefreshToken(it.refreshToken) // Store refreshToken
+                        storeUserRole(it.role)
                     }
                     loginResponse
                 } else {
@@ -54,7 +55,7 @@ class AuthRepository(private val context: Context) {
                     Log.e("AuthRepository", "Registration error body: $errorBody")
                 }
 
-                response.isSuccessful
+                response.isSuccessful // Return true if successful, false otherwise
             } catch (e: Exception) {
                 Log.e("AuthRepository", "Registration error: ${e.message}")
                 false
@@ -87,6 +88,18 @@ class AuthRepository(private val context: Context) {
 
     fun logout() {
         sharedPrefs.edit().clear().apply() // Clear all stored data
+    }
+
+    // --- Helper Function for EncryptedSharedPreferences ---
+
+
+
+    private fun storeRefreshToken(refreshToken: String) {
+        sharedPrefs.edit().putString("refresh_token", refreshToken).apply()
+    }
+
+    fun getRefreshToken(): String? {
+        return sharedPrefs.getString("refresh_token", null)
     }
 
     // --- Helper Function for EncryptedSharedPreferences ---

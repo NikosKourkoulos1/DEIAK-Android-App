@@ -12,7 +12,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 object RetrofitClient {
-    //private const val BASE_URL = "https://deiak-backend-hsz6.onrender.com/"
+    //private const val BASE_URL = "https://deiak-rendbackend.onrender.com/"
     private const val BASE_URL = "http://192.168.2.5:3000/"
 
     private lateinit var apiService: APIService
