@@ -118,15 +118,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
 
-            // Initialize the filter chips
+           // Initialize the chipGroup
             chipGroup = findViewById(R.id.filterChipGroup)
+            chipGroup.visibility = View.GONE
+
+            // Create the filter chips after initializing the chip group
             createFilterChips()
 
             // Set the click listener for filterTextView
             val filterTextView = findViewById<TextView>(R.id.filterTextView)
             filterTextView.setOnClickListener {
-                showFilterMenu(filterTextView)
+                toggleChipGroupVisibility()
             }
+
 
 
         } else {
@@ -137,6 +141,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
 
+
+    private fun toggleChipGroupVisibility() {
+        chipGroup.visibility = if (chipGroup.visibility == View.VISIBLE) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+    }
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.menu_main, menu)
         return true
@@ -308,13 +320,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
 
-        // Initialize the chipGroup
-        chipGroup = findViewById(R.id.filterChipGroup)
-
-        // Create the filter chips after initializing the chip group
-        createFilterChips()
-
-        // --- Map Type Spinner ---
+                // --- Map Type Spinner ---
         val mapTypeContainer = findViewById<LinearLayout>(R.id.mapTypeContainer)
         val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
         val mapTypes = arrayOf(
@@ -424,17 +430,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             chipGroup.addView(chip)
         }
-
-        // Set the click listener for filterContainer
-        val filterContainer = findViewById<LinearLayout>(R.id.filterContainer)
-        filterContainer.setOnClickListener {
-            showFilterMenu(filterContainer)
-        }
     }
+
+
 
     private fun handleChipClick(chip: Chip) {
         val type = chip.text.toString()
 
+        // Update visibleNodeTypes and marker visibility together
         if (chip.isChecked) {
             if (!visibleNodeTypes.contains(type)) {
                 visibleNodeTypes.add(type)
@@ -442,60 +445,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         } else {
             visibleNodeTypes.remove(type)
         }
-        filterMarkers()
-    }
-    private fun showFilterMenu(view: View) {
-        // Show the filterContainer
-        val filterContainer = findViewById<LinearLayout>(R.id.filterContainer)
-        filterContainer.visibility = View.VISIBLE
 
-        val popupMenu = PopupMenu(this, view)
-        val menuInflater: MenuInflater = popupMenu.menuInflater
-        menuInflater.inflate(R.menu.filter_menu, popupMenu.menu)
-
-        // Set initial checked states based on visibleNodeTypes
-        for (i in 0 until popupMenu.menu.size()) {
-            val menuItem = popupMenu.menu.getItem(i)
-            val nodeType = menuItem.title.toString()
-            menuItem.isChecked = visibleNodeTypes.contains(nodeType)
-        }
-
-        popupMenu.setOnMenuItemClickListener { menuItem ->
-            val nodeType = menuItem.title.toString()
-            menuItem.isChecked = !menuItem.isChecked
-
-            if (menuItem.isChecked) {
-                if (!visibleNodeTypes.contains(nodeType)) {
-                    visibleNodeTypes.add(nodeType)
-                }
-            } else {
-                visibleNodeTypes.remove(nodeType)
-            }
-
-            // Find the corresponding chip and update its checked state
-            for (i in 0 until chipGroup.childCount) {
-                val chip = chipGroup.getChildAt(i) as Chip
-                if (chip.text == nodeType) {
-                    chip.isChecked = menuItem.isChecked
-                    break
-                }
-            }
-
-            filterMarkers()
-            filterContainer.visibility = View.GONE // Dismiss the filter container
-            true
-        }
-
-        popupMenu.show()
-    }
-
-    private fun filterMarkers() {
+        // Update marker visibility based on visibleNodeTypes
         nodesMap.forEach { (marker, node) ->
-            if (visibleNodeTypes.contains(node.type)) {
-                marker.isVisible = true
-            } else {
-                marker.isVisible = false
-            }
+            marker.isVisible = visibleNodeTypes.contains(node.type)
         }
     }
 
