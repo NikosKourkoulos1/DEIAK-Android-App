@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var visibleNodeTypes: MutableList<String> = mutableListOf()
     private lateinit var chipGroup: ChipGroup
 
-
+    private var markerClickListener: GoogleMap.OnMarkerClickListener? = null
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -280,6 +280,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         mMap = googleMap
         val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
 
+
+        // Initialize the marker click listener
+        markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
+            val node = nodesMap[marker]
+            if (node != null) {
+                showNodeDetailsDialog(marker)
+                true // Consume the click event
+            } else {
+                Log.e("OnMarkerClickListener", "Node not found for marker: ${marker.title}")
+                false // Don't consume the click if node not found
+            }
+        }
+
+        // Set the initial marker click listener
+        mMap.setOnMarkerClickListener(markerClickListener)
         // Set initial map position to Corfu Island
         val corfuBounds = LatLngBounds(
             LatLng(39.45, 19.7), // Southwest corner of Corfu Island
@@ -364,7 +379,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         .title(node.name)
                         .icon(getMarkerIconFromType(node.type))
                 )
+                marker?.let {
+                    nodesMap[it] = node
+                }
 
+                // Set the marker click listener using the member variable
+                marker?.let {
+                    it.tag = node // Store the node in the marker's tag
+                    if (markerClickListener != null) {
+                        mMap.setOnMarkerClickListener(markerClickListener)
+                    }
+                }
                 // Add marker and node to nodesMap only if _id is not null
                 if (!node._id.isNullOrEmpty()) {
                     marker?.let { nodesMap[it] = node }
@@ -420,10 +445,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val chip = Chip(this)
             chip.text = nodeType
             chip.isCheckable = true
-            chip.isChecked = true // Initially all selected
-            visibleNodeTypes.add(nodeType) // Initially all selected
-
-            // Set chip's click listener
+            chip.isChecked = true
+            visibleNodeTypes.add(nodeType)
             chip.setOnClickListener {
                 handleChipClick(chip)
             }
@@ -433,11 +456,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
 
-
     private fun handleChipClick(chip: Chip) {
+
         val type = chip.text.toString()
 
-        // Update visibleNodeTypes and marker visibility together
+        // Update visibleNodeTypes based on the chip's checked state
         if (chip.isChecked) {
             if (!visibleNodeTypes.contains(type)) {
                 visibleNodeTypes.add(type)
@@ -450,8 +473,29 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         nodesMap.forEach { (marker, node) ->
             marker.isVisible = visibleNodeTypes.contains(node.type)
         }
+        refreshMap()
     }
 
+    private fun refreshMap() {
+        mMap.clear() // Clear all markers
+        nodesMap.clear() // Clear the nodesMap
+
+        lifecycleScope.launch {
+            // Fetch the updated data first
+            nodes = withContext(Dispatchers.IO) {
+                nodeRepository.getNodes()
+            }
+
+            // Update the map on the main thread after data is fetched
+            withContext(Dispatchers.Main) {
+                nodes?.forEach { node ->
+                    if (visibleNodeTypes.contains(node.type)) {
+                        addMarkerToMap(node) // Re-add the marker only if its type is visible
+                    }
+                }
+            }
+        }
+    }
     private fun showNodeCreationDialog(latLng: LatLng) {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_node_creation, null)
 
@@ -830,6 +874,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     nodesMap.remove(marker) // Remove the old marker-node association
                     newMarker?.let { nodesMap[it] = updatedNode } // Add the new marker-node association
 
+                    mMap.setOnMarkerClickListener { clickedMarker ->
+                        // Find the node associated with the clicked marker
+                        val clickedNode = nodesMap[clickedMarker]
+
+                        if (clickedNode != null) {
+                            showNodeDetailsDialog(clickedMarker)
+                            true // Consume the click event
+                        } else {
+                            false // Don't consume the click event if no node is found
+                        }
+                    }
                     Toast.makeText(this@MainActivity, "Node updated successfully", Toast.LENGTH_SHORT).show()
                 } else {
                     // Log the error response body for debugging
@@ -897,6 +952,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     // Optionally, update your 'nodes' list if you are using it for other purposes
 
                     Toast.makeText(this@MainActivity, "Node deleted successfully", Toast.LENGTH_SHORT).show()
+                    refreshMap()
                 } else {
                     val errorBody = response.errorBody()?.string()
                     Log.e("MainActivity", "Failed to delete node: ${response.code()} - $errorBody")
@@ -907,6 +963,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Toast.makeText(this@MainActivity, "Failed to delete node", Toast.LENGTH_SHORT).show()
             }
         }
+
     }
 
     override fun onStop() {
