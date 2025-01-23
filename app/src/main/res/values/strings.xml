@@ -13,6 +13,13 @@
     <string name="user_details">User Details</string>
     <string name="all_users">All Users</string>
     <string name="logout">Logout</string>
+    <string name="kleidi">Κλειδί</string>
+    <string name="krounos">Πυροσβεστικός Κρουνός</string>
+    <string name="taf">Ταφ</string>
+    <string name="gonia">Γωνία</string>
+    <string name="kolekter">Κολεκτέρ</string>
+    <string name="paroxi">Παροχή</string>
+    <string name="pipes">Σωλήνες</string>
     <string-array name="node_statuses">
         <item>Status</item>
         <item>active</item>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/filter_kleidi"
+        android:title="Κλειδί"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_krounos"
+        android:title="Πυροσβεστικός Κρουνός"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_taf"
+        android:title="Ταφ"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_gonia"
+        android:title="Γωνία"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_kolekter"
+        android:title="Κολεκτέρ"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_paroxi"
+        android:title="Παροχή"
+        android:checkable="true" />
+    <item
+        android:id="@+id/filter_pipes"
+        android:title="Pipes"
+        android:checkable="true" />
+</menu>

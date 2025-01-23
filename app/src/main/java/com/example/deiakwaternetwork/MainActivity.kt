@@ -42,6 +42,7 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.MarkerOptions
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.widget.AdapterView
 import android.widget.Button
 import android.widget.TextView
 import com.example.deiakwaternetwork.data.APIService
@@ -50,6 +51,12 @@ import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.Marker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.widget.LinearLayout
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
+import android.view.MenuInflater
+import android.widget.PopupMenu
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -70,6 +77,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var nodes: List<Node>? = null
     private val nodesMap: MutableMap<Marker, Node> = mutableMapOf()
     private lateinit var apiService: APIService
+    private var visibleNodeTypes: MutableList<String> = mutableListOf()
+    private lateinit var chipGroup: ChipGroup
+
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +93,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         userRepository = UserRepository(this)
 
         nodeRepository = NodeRepository(this)
+
+
 
         // Check if the user is logged in
         if (authRepository.isLoggedIn()) {
@@ -105,7 +118,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
 
-            // ... (The rest of your existing MainActivity setup code) ...
+            // Initialize the filter chips
+            chipGroup = findViewById(R.id.filterChipGroup)
+            createFilterChips()
+
+            // Set the click listener for filterTextView
+            val filterTextView = findViewById<TextView>(R.id.filterTextView)
+            filterTextView.setOnClickListener {
+                showFilterMenu(filterTextView)
+            }
+
 
         } else {
             // User is not logged in, redirect to LoginActivity
@@ -285,6 +307,47 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             Toast.makeText(this, "Error initializing map", Toast.LENGTH_SHORT).show()
         }
 
+
+        // Initialize the chipGroup
+        chipGroup = findViewById(R.id.filterChipGroup)
+
+        // Create the filter chips after initializing the chip group
+        createFilterChips()
+
+        // --- Map Type Spinner ---
+        val mapTypeContainer = findViewById<LinearLayout>(R.id.mapTypeContainer)
+        val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
+        val mapTypes = arrayOf(
+            "Προεπιλογή",
+            "Δορυφόρος",
+            "Έδαφος",
+            "Υβριδικό"
+        )
+        val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
+        mapTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        mapTypeSpinner.adapter = mapTypeAdapter
+
+        mapTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                val selectedMapType = when (position) {
+                    0 -> GoogleMap.MAP_TYPE_NORMAL
+                    1 -> GoogleMap.MAP_TYPE_SATELLITE
+                    2 -> GoogleMap.MAP_TYPE_TERRAIN
+                    3 -> GoogleMap.MAP_TYPE_HYBRID
+                    else -> GoogleMap.MAP_TYPE_NORMAL
+                }
+                mMap.mapType = selectedMapType
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>) {
+                // Set the map type to Normal (or your preferred default)
+                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL
+
+                // Optionally, you can also select the corresponding item in the Spinner
+                mapTypeSpinner.setSelection(0) // Assuming "Normal" is at index 0
+            }
+        }
+
         lifecycleScope.launch {
             nodes = nodeRepository.getNodes()
             nodes?.forEach { node ->
@@ -339,6 +402,101 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             return
         }
         mMap.isMyLocationEnabled = true
+    }
+
+
+    private fun createFilterChips() {
+        val nodeTypes = arrayOf(
+            "Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή", "Pipes"
+        )
+
+        for (nodeType in nodeTypes) {
+            val chip = Chip(this)
+            chip.text = nodeType
+            chip.isCheckable = true
+            chip.isChecked = true // Initially all selected
+            visibleNodeTypes.add(nodeType) // Initially all selected
+
+            // Set chip's click listener
+            chip.setOnClickListener {
+                handleChipClick(chip)
+            }
+
+            chipGroup.addView(chip)
+        }
+
+        // Set the click listener for filterContainer
+        val filterContainer = findViewById<LinearLayout>(R.id.filterContainer)
+        filterContainer.setOnClickListener {
+            showFilterMenu(filterContainer)
+        }
+    }
+
+    private fun handleChipClick(chip: Chip) {
+        val type = chip.text.toString()
+
+        if (chip.isChecked) {
+            if (!visibleNodeTypes.contains(type)) {
+                visibleNodeTypes.add(type)
+            }
+        } else {
+            visibleNodeTypes.remove(type)
+        }
+        filterMarkers()
+    }
+    private fun showFilterMenu(view: View) {
+        // Show the filterContainer
+        val filterContainer = findViewById<LinearLayout>(R.id.filterContainer)
+        filterContainer.visibility = View.VISIBLE
+
+        val popupMenu = PopupMenu(this, view)
+        val menuInflater: MenuInflater = popupMenu.menuInflater
+        menuInflater.inflate(R.menu.filter_menu, popupMenu.menu)
+
+        // Set initial checked states based on visibleNodeTypes
+        for (i in 0 until popupMenu.menu.size()) {
+            val menuItem = popupMenu.menu.getItem(i)
+            val nodeType = menuItem.title.toString()
+            menuItem.isChecked = visibleNodeTypes.contains(nodeType)
+        }
+
+        popupMenu.setOnMenuItemClickListener { menuItem ->
+            val nodeType = menuItem.title.toString()
+            menuItem.isChecked = !menuItem.isChecked
+
+            if (menuItem.isChecked) {
+                if (!visibleNodeTypes.contains(nodeType)) {
+                    visibleNodeTypes.add(nodeType)
+                }
+            } else {
+                visibleNodeTypes.remove(nodeType)
+            }
+
+            // Find the corresponding chip and update its checked state
+            for (i in 0 until chipGroup.childCount) {
+                val chip = chipGroup.getChildAt(i) as Chip
+                if (chip.text == nodeType) {
+                    chip.isChecked = menuItem.isChecked
+                    break
+                }
+            }
+
+            filterMarkers()
+            filterContainer.visibility = View.GONE // Dismiss the filter container
+            true
+        }
+
+        popupMenu.show()
+    }
+
+    private fun filterMarkers() {
+        nodesMap.forEach { (marker, node) ->
+            if (visibleNodeTypes.contains(node.type)) {
+                marker.isVisible = true
+            } else {
+                marker.isVisible = false
+            }
+        }
     }
 
     private fun showNodeCreationDialog(latLng: LatLng) {
