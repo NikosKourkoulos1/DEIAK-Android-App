@@ -57,7 +57,17 @@ import com.google.android.gms.maps.model.PolylineOptions
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import android.graphics.Color
-
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
+import com.google.android.gms.maps.model.ButtCap
+import com.google.android.gms.maps.model.CustomCap
+import com.google.android.gms.maps.model.Dash
+import com.google.android.gms.maps.model.Gap
+import com.google.android.gms.maps.model.PatternItem
+import com.google.maps.android.SphericalUtil
+import android.graphics.Canvas
+import com.google.android.gms.maps.model.RoundCap
+import android.graphics.Paint // Add this import at the top of your file
 
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
@@ -93,8 +103,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var pipes: List<Pipe>? = null
 
     private var pipeList = mutableListOf<Pipe>() // Add this!  Mutable list for updates.
-    private val pipesMap: MutableMap<Polyline, Pipe> = mutableMapOf()
+    //private val pipesMap: MutableMap<Polyline, Pipe> = mutableMapOf()
+    private val pipesMap: MutableMap<Polyline, PipeData> = mutableMapOf()
+
     private var tempMarkers: MutableList<Marker> = mutableListOf() // Add this list
+    data class PipeData(val pipe: Pipe)
+    private val polylineAnimators = mutableMapOf<Polyline, ValueAnimator>() // Store animators
+
+    private val ARROW_SPACING_METERS = 50.0 // Adjust this as needed
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -293,79 +309,94 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
-        val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
-        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
 
-
-        // Initialize the marker click listener (for Nodes)
-        markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
-            val node = nodesMap[marker]
-            if (node != null) {
-                showNodeDetailsDialog(marker)
-                true // Consume the click event
-            } else {
-                Log.e("OnMarkerClickListener", "Node not found for marker: ${marker.title}")
-                false // Don't consume the click if node not found
-            }
-        }
-
-        // Set the initial marker click listener (for Nodes)
-        mMap.setOnMarkerClickListener(markerClickListener)
-
-
-        // Set initial map position to Corfu Island
+        // Set initial map position and constraints
         val corfuBounds = LatLngBounds(
             LatLng(39.45, 19.7), // Southwest corner of Corfu Island
             LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
         )
-        // Set initial map position to Corfu Island AND lock the camera to those bounds
-        val cameraUpdate = CameraUpdateFactory.newLatLngBounds(corfuBounds, 0)
-        mMap.moveCamera(cameraUpdate)
-
-        // Constrain map camera target to Corfu Island (allow zooming)
+        mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
+        mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Set default map type, and ensure no custom style
         mMap.setOnCameraMoveListener {
-            // Get current camera position
-            val currentCameraPosition = mMap.cameraPosition
-
-            // Check if the camera target is within Corfu bounds
-            if (!corfuBounds.contains(currentCameraPosition.target)) {
-                // If the target is outside the bounds, move it back inside
+            if (!corfuBounds.contains(mMap.cameraPosition.target)) {
                 mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
             }
         }
 
+        // Set up location services.  Request permission if needed.
         mMap.setOnMyLocationButtonClickListener {
             checkLocationSettingsAndGetCurrentLocation()
             true
         }
-
-        if (::nodeRepository.isInitialized) { // Check if nodeRepository is initialized
-            lifecycleScope.launch {
-                val nodes = nodeRepository.getNodes()
-                nodes?.forEach { node ->
-                    addMarkerToMap(node)
-                }
-            }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            mMap.isMyLocationEnabled = true
         } else {
-            // Handle the case where nodeRepository is not initialized
-            Log.e("MainActivity", "nodeRepository is not initialized")
-            Toast.makeText(this, "Error initializing map", Toast.LENGTH_SHORT).show()
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST_CODE)
         }
 
+        // Set up listeners *AFTER* map is fully loaded
+        mMap.setOnMapLoadedCallback {
+
+            // Node click listener.  Use the markerClickListener you already have.
+            markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
+                val node = nodesMap[marker]
+                if (node != null) {
+                    showNodeDetailsDialog(marker)
+                    true
+                } else {
+                    false
+                }
+            }
+            mMap.setOnMarkerClickListener(markerClickListener)
+
+            // Polyline click listener - *CRUCIAL* to set this here.
+            mMap.setOnPolylineClickListener { polyline ->
+                showPipeDetailsDialogFromPolyline(polyline)
+            }
+
+            // --- Now, load BOTH nodes and pipes *after* the listeners are set ---
+            lifecycleScope.launch {
+                nodes = withContext(Dispatchers.IO) { nodeRepository.getNodes() }
+                pipes = withContext(Dispatchers.IO) { pipeRepository.getPipes() }
+
+                withContext(Dispatchers.Main) {
+                    // Add nodes first
+                    nodes?.forEach { node -> addMarkerToMap(node) }
+                    // Then add pipes (which depend on nodes)
+                    pipes?.forEach { pipe -> addPipeToMap(pipe) }
+                }
+            }
+        }
+
+        // Set up FABs (Floating Action Buttons)
+        val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
+        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
+
+        if (authRepository.getUserRole() == "admin") {
+            fabAddNode.visibility = View.VISIBLE
+            fabAddPipe.visibility = View.VISIBLE
+        }
+
+        fabAddNode.setOnClickListener {
+            Toast.makeText(this, "Click on the map to add a node", Toast.LENGTH_SHORT).show()
+            mMap.setOnMapClickListener { latLng -> // Set a *temporary* listener
+                showNodeCreationDialog(latLng)
+                mMap.setOnMapClickListener(null) // *Remove* the listener after one click
+            }
+        }
+
+        fabAddPipe.setOnClickListener {
+            if (authRepository.getUserRole() == "admin") {
+                startPipeDrawingMode()
+            }
+        }
 
         // --- Map Type Spinner ---
-        val mapTypeContainer = findViewById<LinearLayout>(R.id.mapTypeContainer)
         val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
-        val mapTypes = arrayOf(
-            "Προεπιλογή",
-            "Δορυφόρος",
-            "Έδαφος",
-            "Υβριδικό"
-        )
+        val mapTypes = arrayOf("Προεπιλογή", "Δορυφόρος", "Έδαφος", "Υβριδικό")
         val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
         mapTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         mapTypeSpinner.adapter = mapTypeAdapter
-
         mapTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
                 val selectedMapType = when (position) {
@@ -377,88 +408,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
                 mMap.mapType = selectedMapType
             }
-
             override fun onNothingSelected(parent: AdapterView<*>) {
-                // Set the map type to Normal (or your preferred default)
-                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL
-
-                // Optionally, you can also select the corresponding item in the Spinner
-                mapTypeSpinner.setSelection(0) // Assuming "Normal" is at index 0
+                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Default
+                mapTypeSpinner.setSelection(0) // Select "Normal" in the spinner
             }
         }
-
-        // --- Node and Pipe Loading --- (Modified to load and display pipes)
-        lifecycleScope.launch {
-            nodes = nodeRepository.getNodes()
-            pipes = pipeRepository.getPipes()
-
-            nodes?.forEach { node ->
-                addMarkerToMap(node)
-            }
-
-            pipes?.forEach { pipe ->
-                addPipeToMap(pipe) // addPipeToMap now makes polylines clickable
-            }
-
-            // Set the polyline click listener *AFTER* loading pipes:
-            mMap.setOnPolylineClickListener { polyline ->
-                showPipeDetailsDialogFromPolyline(polyline) // Correctly calls the detail function
-            }
-        }
-
-
-
-
-        mMap.setOnPolylineClickListener { polyline ->
-            val pipe = this@MainActivity.pipesMap[polyline] // Use this@MainActivity (still good practice)
-            if (pipe != null) {
-                showPipeDetailsDialog(pipe)
-            }
-        }
-
-
-        if (authRepository.getUserRole() == "admin") {
-            fabAddNode.visibility = View.VISIBLE
-            fabAddPipe.visibility = View.VISIBLE // Show the pipe button for admins
-        }
-
-        fabAddNode.setOnClickListener {
-            Toast.makeText(this, "Click on the map to add a node", Toast.LENGTH_SHORT).show()
-            mMap.setOnMapClickListener { latLng ->
-                showNodeCreationDialog(latLng)
-                mMap.setOnMapClickListener(null)
-            }
-        }
-
-        // --- Pipe Drawing Setup (inside onMapReady) ---
-
-        fabAddPipe.setOnClickListener {
-            if (authRepository.getUserRole() == "admin") { // Double-check admin
-                startPipeDrawingMode()
-            }
-        }
-
-
-        // GPS Location (with permission check)
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // Request location permission
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                LOCATION_PERMISSION_REQUEST_CODE
-            )
-            return
-        }
-        mMap.isMyLocationEnabled = true
     }
-
 
     private fun createFilterChips() {
         val nodeTypes = arrayOf(
@@ -510,37 +465,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun filterAndRedrawPipes() {
-        lifecycleScope.launch {
-            // Get ALL pipes from the repository (unfiltered).  Important!
-            val allPipes = withContext(Dispatchers.IO) { pipeRepository.getPipes() } ?: return@launch
-
-            val filteredPipes = if (visibleNodeTypes.contains("Pipes")) { // Use the INTERNAL identifier here
-                allPipes // If "Pipes" is checked, show all pipes.
-            } else {
-                emptyList() // If "Pipes" is unchecked, show NO pipes.
-            }
-
-            // Update the map on the main thread
-            withContext(Dispatchers.Main) {
-                mMap.clear() // Clear everything: markers AND polylines
-
-                // Add filtered nodes
-                nodes?.forEach { node ->
-                    if (visibleNodeTypes.contains(node.type)) {
-                        addMarkerToMap(node)  //  nodes display logic
-                    }
-                }
-
-                // Add only the *filtered* pipes to the map
-                filteredPipes.forEach { pipe ->
-                    addPipeToMap(pipe) //add pipe and add to map
-                }
-                // Restore click listeners.  VERY IMPORTANT!
-                mMap.setOnMarkerClickListener(markerClickListener)
-                mMap.setOnPolylineClickListener { polyline -> // Re-apply the click listener
-                    showPipeDetailsDialogFromPolyline(polyline)
-                }
-            }
+        val showPipes = visibleNodeTypes.contains("Pipes")
+        pipesMap.forEach { (polyline, _) -> // '_' because we don't need pipeData
+            polyline.isVisible = showPipes
         }
     }
 
@@ -1154,30 +1081,26 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun showPipeCreationDialog() {
-        // No need for startMarker, endMarker parameters anymore
-
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_creation, null)
 
-        // --- Find Views ---
         val etStatus = dialogView.findViewById<Spinner>(R.id.spinnerPipeStatus)
-        val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow)
-        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength) // Keep as EditText
+        //val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow) // Remove - No longer needed
+        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength)
         val etDiameter = dialogView.findViewById<EditText>(R.id.etPipeDiameter)
         val etMaterial = dialogView.findViewById<EditText>(R.id.etPipeMaterial)
+        val spinnerFlowDirection = dialogView.findViewById<Spinner>(R.id.spinnerFlowDirection) // Get reference
 
-        // Remove these, as we're not showing start/end node names now
-        // val tvStartNode = dialogView.findViewById<TextView>(R.id.tvStartNodeValue)
-        // val tvEndNode = dialogView.findViewById<TextView>(R.id.tvEndNodeValue)
-
-        // Remove these lines as well:
-        // tvStartNode.text = startNode.name
-        // tvEndNode.text = endNode.name
-
-        // -- Set up Spinner
+        // -- Set up Status Spinner
         val pipeStatuses = resources.getStringArray(R.array.pipe_statuses)
         val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, pipeStatuses)
         statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         etStatus.adapter = statusAdapter
+
+        // Setup flow direction spinner
+        val flowDirections = arrayOf("Start to End", "End to Start") // Human-readable options
+        val directionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, flowDirections)
+        directionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerFlowDirection.adapter = directionAdapter
 
 
         val dialog = AlertDialog.Builder(this)
@@ -1193,15 +1116,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val createButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             createButton.setOnClickListener {
                 val status = etStatus.selectedItem.toString()
-                val flow = etFlow.text.toString().toIntOrNull() ?: 0
-                val length = calculatePipeLength(pipePoints)   //Calculate Length
+                //val flow = etFlow.text.toString().toIntOrNull() ?: 0 // REMOVE - We get flow from the spinner
+                val length = calculatePipeLength(pipePoints)
                 val diameter = etDiameter.text.toString().toIntOrNull()
                 val material = etMaterial.text.toString().trim()
+                val flow = spinnerFlowDirection.selectedItemPosition // Get selected index (0 or 1)
+
 
                 if (status.isEmpty()) {
                     Toast.makeText(this, "Status is required", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+
                 //Added Validation for at least two points
                 if(pipePoints.size < 2) {
                     Toast.makeText(this, "You need to select at least two points for a pipe", Toast.LENGTH_SHORT).show()
@@ -1212,7 +1138,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     _id = null, // Let the backend generate
                     coordinates = pipePoints.map { com.example.deiakwaternetwork.model.Location(it.latitude, it.longitude) }, // Convert LatLng to Location
                     status = status,
-                    flow = flow,
+                    flow = flow,  // Use the selected direction (0 or 1)
                     length = length,
                     diameter = diameter,
                     material = material,
@@ -1240,27 +1166,104 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
 
-    private fun addPipeToMap(pipe: Pipe) {
-        val polyline = mMap.addPolyline(
-            PolylineOptions()
-                .addAll(pipe.coordinates.map {LatLng(it.latitude, it.longitude)}) //Convert to LatLng
-                .color(Color.BLUE)
-                .width(10f)
-                .clickable(true) // Make sure it's clickable  <-- THIS IS CRUCIAL
-        )
-        // Associate the polyline with the Pipe object using pipesMap (IMPORTANT)
-        pipesMap[polyline] = pipe // Correct way to store the pipe
+    fun addPipeToMap(pipe: Pipe) {
+        Log.d("PipeDebug", "Adding pipe with ID: ${pipe._id}, flow: ${pipe.flow}")
+
+        val points = pipe.coordinates.map { LatLng(it.latitude, it.longitude) }
+        val polylineOptions = PolylineOptions()
+            .addAll(points)
+            .width(10f)
+            .color(Color.BLUE)
+            .clickable(true)
+            .startCap(RoundCap())  // Use RoundCap for nice ends
+            .endCap(RoundCap())     // Use RoundCap for nice ends
+
+        val polyline = mMap.addPolyline(polylineOptions)
+        Log.d("PipeDebug", "  Polyline added: ${polyline.id}")
+        pipesMap[polyline] = PipeData(pipe)
+
+        // Add arrow markers *after* adding the polyline
+        addArrowMarkers(polyline, pipe.flow)
+    }
+    private fun addArrowMarkers(polyline: Polyline, flowDirection: Int?) {
+        val points = polyline.points
+        if (points.size < 2) return // Need at least 2 points
+
+        // Create the arrowhead bitmap (do this ONCE, not repeatedly)
+        val arrowIcon = createArrowIcon(Color.BLUE) // Use consistent color
+
+        var distanceSoFar = 0.0
+        for (i in 0 until points.size - 1) {
+            val start = points[i]
+            val end = points[i + 1]
+            val segmentDistance = SphericalUtil.computeDistanceBetween(start, end)
+
+            // Place arrows along this segment
+            while (distanceSoFar < segmentDistance) {
+                // Interpolate to find the point for the arrow
+                val arrowLatLng = SphericalUtil.interpolate(start, end, distanceSoFar / segmentDistance)
+
+                // Calculate bearing (rotation) for the marker
+                val bearing = SphericalUtil.computeHeading(start, end)
+                val adjustedBearing = if (flowDirection == 1) bearing + 180 else bearing // Reverse if needed
+
+                // Add the arrow marker
+                mMap.addMarker(
+                    MarkerOptions()
+                        .position(arrowLatLng)
+                        .icon(arrowIcon)
+                        .rotation(adjustedBearing.toFloat()) // Rotate the marker
+                        .anchor(0.5f, 0.5f) // Center the marker
+                        .flat(true)          // Keep the marker flat on the map
+                )
+
+                distanceSoFar += ARROW_SPACING_METERS
+            }
+            distanceSoFar -= segmentDistance  // Adjust for the next segment
+        }
     }
 
-    private fun showPipeDetailsDialogFromPolyline(polyline: Polyline) {
-        // Retrieve the Pipe object from the polyline's tag
-        val pipe = pipesMap[polyline] // Use this@MainActivity
-        if (pipe != null) {
-            showPipeDetailsDialog(pipe)
-        } else {
-            // Handle the case where the polyline doesn't have a Pipe tag.
-            Log.e("MainActivity", "Polyline tag is not a Pipe object.")
+    private fun createArrowIcon(color: Int): BitmapDescriptor {
+        val arrowSize = 48 // Desired size in pixels (e.g., 48x48)
 
+        // Create a mutable bitmap
+        val bitmap = Bitmap.createBitmap(arrowSize, arrowSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.TRANSPARENT) // Make the background transparent
+
+        // Create a Paint object for drawing the arrow
+        val paint = Paint().apply {
+            this.color = color
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+
+        // Define the arrow shape (a simple triangle) - adjust points as needed
+        val path = android.graphics.Path().apply {
+            moveTo(arrowSize / 2f, 0f)           // Top-center
+            lineTo(arrowSize.toFloat(), arrowSize.toFloat()) // Bottom-right
+            lineTo(0f, arrowSize.toFloat())    // Bottom-left
+            close()                          // Connect back to the top
+        }
+
+        // Draw the arrow onto the canvas
+        canvas.drawPath(path, paint)
+
+        return BitmapDescriptorFactory.fromBitmap(bitmap)
+    }
+
+
+
+
+
+
+    private fun showPipeDetailsDialogFromPolyline(polyline: Polyline) {
+        val pipeData = pipesMap[polyline] // Get the PipeData object
+        if (pipeData != null) {
+            showPipeDetailsDialog(pipeData.pipe) // Access the .pipe property
+        } else {
+            //IMPORTANT
+            Log.e("MainActivity", "Polyline has no associated PipeData.")
         }
     }
 
@@ -1336,26 +1339,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_edit, null)
 
         val etStatus = dialogView.findViewById<Spinner>(R.id.spinnerPipeStatus)
-        val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow)
-        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength) // Keep as EditText
+        //val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow) // Remove - No longer an EditText
+        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength)
         val etDiameter = dialogView.findViewById<EditText>(R.id.etPipeDiameter)
         val etMaterial = dialogView.findViewById<EditText>(R.id.etPipeMaterial)
-        //val tvStartNode = dialogView.findViewById<TextView>(R.id.tvStartNodeValue) //Removed
-        //val tvEndNode = dialogView.findViewById<TextView>(R.id.tvEndNodeValue) //Removed
+        val spinnerFlowDirection = dialogView.findViewById<Spinner>(R.id.spinnerFlowDirection) // Keep this
 
-
+        // -- Set up Status Spinner (Keep this)
         val pipeStatuses = resources.getStringArray(R.array.pipe_statuses)
         val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, pipeStatuses)
         statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         etStatus.adapter = statusAdapter
 
+        // Setup flow direction spinner (same as in creation dialog)
+        val flowDirections = arrayOf("Start to End", "End to Start")
+        val directionAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, flowDirections)
+        directionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerFlowDirection.adapter = directionAdapter
+
 
         // Set initial values (handle nulls)
         etStatus.setSelection(statusAdapter.getPosition(pipe.status))
-        etFlow.setText(pipe.flow.toString())
-        etLength.setText(pipe.length?.toString() ?: "") // Show the saved value
+        //etFlow.setText(pipe.flow.toString()) // REMOVE - We're using the spinner
+        etLength.setText(pipe.length?.toString() ?: "")
         etDiameter.setText(pipe.diameter?.toString() ?: "")
         etMaterial.setText(pipe.material ?: "")
+        spinnerFlowDirection.setSelection(pipe.flow ?: 0) // Set initial selection, default to 0
+
 
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
@@ -1368,7 +1378,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             saveButton.setOnClickListener {
                 val updatedStatus = etStatus.selectedItem.toString()
-                val updatedFlow = etFlow.text.toString().toIntOrNull() ?: 0
+                val updatedFlow = spinnerFlowDirection.selectedItemPosition // Get from spinner
                 val updatedLength =  calculatePipeLength(pipePoints)
                 val updatedDiameter = etDiameter.text.toString().toIntOrNull()
                 val updatedMaterial = etMaterial.text.toString().trim()
@@ -1376,7 +1386,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
                 val updatedPipe = pipe.copy(
                     status = updatedStatus,
-                    flow = updatedFlow,
+                    flow = updatedFlow,  // Use the selected direction
                     length = updatedLength, // Use the new calculated length
                     diameter = updatedDiameter,
                     material = updatedMaterial,
@@ -1396,13 +1406,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         lifecycleScope.launch {
             val result = pipeRepository.updatePipe(pipeId, updatedPipe)
             if (result != null) {
-                // Find and remove the old polyline, iterating through pipesMap:
-                val oldPolyline = pipesMap.entries.find { it.value._id == pipeId }?.key
-                oldPolyline?.remove()
-                pipesMap.remove(oldPolyline)
+                // Find and remove the old polyline and its markers:
+                val entry = pipesMap.entries.find { it.value.pipe._id == pipeId }
+                entry?.let { (polyline, pipeData) ->
+                    polyline.remove() // Remove old polyline
+                    pipesMap.remove(polyline) // Remove from map
+                }
 
-                // Add the updated pipe to the map
-                addPipeToMap(result) // This will draw the new polyline, and add to the map
+                // Remove old arrow markers associated with this pipe.  Crucially, we need
+                // to do this *before* adding the new pipe, or we'll have duplicate markers.
+                removeAllMarkers() // Remove *all* markers (nodes and arrows)
+                addPipeToMap(result) // Add the updated pipe (polyline and arrows)
+                refreshAllNodes()  // Now, re-add nodes.  This is the key change.
+
+                // Update local pipe list
+                val index = pipeList.indexOfFirst { it._id == pipeId }
+                if (index != -1) {
+                    pipeList[index] = result
+                    pipes = pipeList.toList()
+                }
                 Toast.makeText(this@MainActivity, "Pipe updated successfully", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this@MainActivity, "Failed to update pipe", Toast.LENGTH_SHORT).show()
@@ -1410,25 +1432,72 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    private fun refreshAllNodes(){
+        lifecycleScope.launch {
+            nodes = withContext(Dispatchers.IO) { nodeRepository.getNodes() }
+            withContext(Dispatchers.Main) {
+                nodes?.forEach { node -> addMarkerToMap(node) }
+                // Set up listeners *AFTER* map is fully loaded
+                mMap.setOnMapLoadedCallback {
+
+                    // Node click listener.  Use the markerClickListener you already have.
+                    markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
+                        val node = nodesMap[marker]
+                        if (node != null) {
+                            showNodeDetailsDialog(marker)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    mMap.setOnMarkerClickListener(markerClickListener)
+
+                    // Polyline click listener - *CRUCIAL* to set this here.
+                    mMap.setOnPolylineClickListener { polyline ->
+                        showPipeDetailsDialogFromPolyline(polyline)
+                    }
+                }
+            }
+
+        }
+
+    }
+
+    private fun removeAllMarkers() {
+        for (marker in nodesMap.keys) { // Remove node markers
+            marker.remove()
+        }
+        nodesMap.clear()
+
+        mMap.clear() // Clear *everything*, including polylines
+
+        for (marker in tempMarkers) { // Remove temp markers (if any)
+            marker.remove()
+        }
+        tempMarkers.clear()
+    }
+
+
     private fun deletePipeAndRemoveFromMap(pipe: Pipe) {
         lifecycleScope.launch {
             pipe._id?.let { pipeId ->
                 val success = pipeRepository.deletePipe(pipeId)
                 if (success) {
-                    // 1. Find and remove the polyline from the map:
-                    val polyline = pipesMap.entries.find { it.value._id == pipeId }?.key
-                    polyline?.remove()
+                    // Find the polyline and its associated PipeData:
+                    val entry = pipesMap.entries.find { it.value.pipe._id == pipeId }
+                    entry?.let { (polyline, pipeData) ->
+                        // 1. Remove the polyline from the map:
+                        polyline.remove()
 
-                    // 2. Remove the polyline from pipesMap:
-                    pipesMap.remove(polyline)
+                        // 2. Remove the entry from pipesMap:
+                        pipesMap.remove(polyline)
+                    }
 
-                    // 3. Crucially, remove the pipe from the 'pipes' list:
-                    pipes = pipes?.filter { it._id != pipeId }
+                    // 3.  Remove the pipe from the 'pipeList'
+                    pipeList.removeIf { it._id == pipeId } // Use removeIf for efficiency
+                    pipes = pipeList.toList()  //create a copy of the list.
 
                     Toast.makeText(this@MainActivity, "Pipe deleted successfully", Toast.LENGTH_SHORT).show()
-
-                    // 4. Redraw pipes
-                    refreshMapAfterPipeChange()  // Call a helper function!
 
                 } else {
                     Toast.makeText(this@MainActivity, "Failed to delete pipe", Toast.LENGTH_SHORT).show()
@@ -1436,7 +1505,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
     }
-
     private fun refreshMapAfterPipeChange(){
         lifecycleScope.launch{
             withContext(Dispatchers.Main){
@@ -1477,9 +1545,30 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return totalDistance
     }
 
+
+    fun interpolateColor(color1: Int, color2: Int, fraction: Float): Int {
+        val a1 = Color.alpha(color1)
+        val r1 = Color.red(color1)
+        val g1 = Color.green(color1)
+        val b1 = Color.blue(color1)
+
+        val a2 = Color.alpha(color2)
+        val r2 = Color.red(color2)
+        val g2 = Color.green(color2)
+        val b2 = Color.blue(color2)
+
+        val a = (a1 + (a2 - a1) * fraction).toInt()
+        val r = (r1 + (r2 - r1) * fraction).toInt()
+        val g = (g1 + (g2 - g1) * fraction).toInt()
+        val b = (b1 + (b2 - b1) * fraction).toInt()
+
+        return Color.argb(a, r, g, b)
+    }
     override fun onStop() {
         super.onStop()
-        // Cancels location request (if in flight)
         cancellationTokenSource.cancel()
+        // Clean up animators to prevent leaks
+        polylineAnimators.values.forEach { it.cancel() }
+        polylineAnimators.clear()
     }
 }
