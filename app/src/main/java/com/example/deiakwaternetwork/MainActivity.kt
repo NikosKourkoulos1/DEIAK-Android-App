@@ -10,7 +10,6 @@ import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -20,7 +19,6 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.tasks.CancellationTokenSource
-import android.app.ActionBar
 import com.example.deiakwaternetwork.data.AuthRepository
 import android.content.Intent
 import android.view.Menu
@@ -54,9 +52,7 @@ import kotlinx.coroutines.withContext
 import android.widget.LinearLayout
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
-import android.view.MenuInflater
-import android.widget.PopupMenu
-import androidx.core.content.ContextCompat
+
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -493,8 +489,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         addMarkerToMap(node) // Re-add the marker only if its type is visible
                     }
                 }
+                // IMPORTANT: Re-set the listener *AFTER* adding markers:
+                mMap.setOnMarkerClickListener(markerClickListener)
             }
         }
+
     }
     private fun showNodeCreationDialog(latLng: LatLng) {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_node_creation, null)
@@ -614,13 +613,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             // Create a BitmapDescriptor from the resized bitmap
             val markerIcon = BitmapDescriptorFactory.fromBitmap(resizedBitmap)
 
-            mMap.addMarker(
+            val marker = mMap.addMarker( //Store the returned marker
                 MarkerOptions()
                     .position(latLng)
                     .title(node.name)
                     .icon(markerIcon)
                     .anchor(0.5f, 1.0f) // Set anchor to bottom-center
             )
+            marker?.let {
+                nodesMap[it] = node //Store newly created marker in the map
+                mMap.setOnMarkerClickListener(markerClickListener)
+            }
         } else {
             // Handle the case where the node type is not recognized (e.g., log an error message)
             Log.e("addMarkerToMap", "Unrecognized node type: ${node.type}")
