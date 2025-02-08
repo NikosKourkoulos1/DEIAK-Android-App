@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Status:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvPipeStatusValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Status Value" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Flow:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvPipeFlowValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Flow Value" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Length:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvPipeLengthValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Length Value" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Diameter:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvPipeDiameterValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Diameter Value" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Material:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvPipeMaterialValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Material Value" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Coordinates:"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp"/>
+
+    <TextView
+        android:id="@+id/tvPipeCoordinatesValue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Coordinates Value" />
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnEditPipe"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Edit"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnDeletePipe"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Delete"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnClose"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Close" />
+    </LinearLayout>
+
+</LinearLayout>

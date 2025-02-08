@@ -1,3 +1,4 @@
+
 package com.example.deiakwaternetwork.data
 
 import com.example.deiakwaternetwork.model.* // Import your data classes
@@ -40,29 +41,6 @@ interface APIService {
     @DELETE("api/network/node/{id}")
     suspend fun deleteNode(@Path("id") id: String): Response<Unit>
 
-
-    // --- Pipes ---
-
-    @GET("api/network/pipes/search")
-    suspend fun getPipes(
-        @Query("status") status: String? = null,
-        @Query("minFlow") minFlow: Int? = null,
-        @Query("maxFlow") maxFlow: Int? = null,
-        @Query("startNodeType") startNodeType: String? = null,
-        @Query("endNodeType") endNodeType: String? = null,
-        @Query("minLength") minLength: Int? = null,
-        @Query("maxLength") maxLength: Int? = null
-    ): Response<List<Pipe>>
-
-    @POST("api/network/pipe")
-    suspend fun createPipe(@Body pipe: Pipe): Response<Pipe>
-
-    @PUT("api/network/pipe/{id}")
-    suspend fun updatePipe(@Path("id") id: String, @Body pipe: Pipe): Response<Pipe>
-
-    @DELETE("api/network/pipe/{id}")
-    suspend fun deletePipe(@Path("id") id: String): Response<Unit>
-
     @GET("api/user/{id}")
     suspend fun getUser(@Path("id") userId: String): Response<User>
 
@@ -76,5 +54,29 @@ interface APIService {
     suspend fun deleteUser(@Path("id") userId: String): Response<Unit>
     @GET("api/user/users")
     suspend fun getAllUsers(): Response<List<User>>
+
+    //Pipes
+    @GET("api/network/pipes") //Corrected the URLs.
+    suspend fun getPipes(): Response<List<Pipe>>
+
+    @POST("api/network/pipe")
+    suspend fun createPipe(@Body pipe: Pipe): Response<Pipe>
+
+    @PUT("api/network/pipe/{id}")
+    suspend fun updatePipe(@Path("id") id: String, @Body pipe: Pipe) : Response<Pipe>
+
+    @DELETE("api/network/pipe/{id}")
+    suspend fun deletePipe(@Path("id") id: String): Response<Void>
+
+    @GET("api/network/pipes/search")
+    suspend fun searchPipes(
+        @Query("status") status: String?,
+        @Query("minFlow") minFlow: Double?,
+        @Query("maxFlow") maxFlow: Double?,
+        @Query("minLength") minLength: Double?,
+        @Query("maxLength") maxLength: Double?
+    ): Response<List<Pipe>>
+
+
 
 }

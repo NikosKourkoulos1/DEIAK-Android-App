@@ -1,14 +1,14 @@
 package com.example.deiakwaternetwork.model
 
 data class Pipe(
-    val _id: String,
-    val startNode: String, // Assuming you'll store Node _id
-    val endNode: String,   // Assuming you'll store Node _id
+    val _id: String?,
+    // Removed startNode and endNode
+    val coordinates: List<Location>, // List of Location objects
     val status: String,
     val flow: Int,
-    val length: Int?,
+    val length: Double?,  // Changed to Double
     val diameter: Int?,
     val material: String?,
-    val createdAt: String, // Adjust type if needed
-    val updatedAt: String  // Adjust type if needed
+    val createdAt: String?, // Use String? for consistency
+    val updatedAt: String?  // Use String? for consistency
 )

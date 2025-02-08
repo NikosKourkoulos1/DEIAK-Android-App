@@ -26,5 +26,11 @@
         <item>maintenance</item>
         <item>inactive</item>
     </string-array>
+    <string-array name="pipe_statuses">
+        <item>normal</item>
+        <item>high</item>
+        <item>blocked</item>
+        <item>maintenance</item>
+    </string-array>
 
 </resources>

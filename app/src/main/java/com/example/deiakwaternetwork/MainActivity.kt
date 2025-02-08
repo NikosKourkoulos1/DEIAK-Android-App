@@ -1,6 +1,7 @@
 package com.example.deiakwaternetwork
 
 import NodeRepository
+import PipeRepository
 import android.Manifest
 import android.content.IntentSender
 import android.content.pm.PackageManager
@@ -50,8 +51,13 @@ import com.google.android.gms.maps.model.Marker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.widget.LinearLayout
+import com.example.deiakwaternetwork.model.Pipe
+import com.google.android.gms.maps.model.Polyline
+import com.google.android.gms.maps.model.PolylineOptions
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
+import android.graphics.Color
+
 
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
@@ -78,6 +84,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private var markerClickListener: GoogleMap.OnMarkerClickListener? = null
 
+    private var isDrawingPipe = false
+
+    private var tempPipeLine: Polyline? = null // Temporary line during drawing
+
+    private var pipePoints: MutableList<LatLng> = mutableListOf() // Stores LatLng points
+    private lateinit var pipeRepository: PipeRepository
+    private var pipes: List<Pipe>? = null
+
+    private var pipeList = mutableListOf<Pipe>() // Add this!  Mutable list for updates.
+    private val pipesMap: MutableMap<Polyline, Pipe> = mutableMapOf()
+    private var tempMarkers: MutableList<Marker> = mutableListOf() // Add this list
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,10 +105,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         authRepository = AuthRepository(this) // Initialize authRepository
 
         userRepository = UserRepository(this)
+        userRepository = UserRepository(this)
 
         nodeRepository = NodeRepository(this)
 
-
+        pipeRepository = PipeRepository(this)
 
         // Check if the user is logged in
         if (authRepository.isLoggedIn()) {
@@ -275,9 +294,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
         val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
+        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
 
 
-        // Initialize the marker click listener
+        // Initialize the marker click listener (for Nodes)
         markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
             val node = nodesMap[marker]
             if (node != null) {
@@ -289,8 +309,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
-        // Set the initial marker click listener
+        // Set the initial marker click listener (for Nodes)
         mMap.setOnMarkerClickListener(markerClickListener)
+
+
         // Set initial map position to Corfu Island
         val corfuBounds = LatLngBounds(
             LatLng(39.45, 19.7), // Southwest corner of Corfu Island
@@ -331,7 +353,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
 
-                // --- Map Type Spinner ---
+        // --- Map Type Spinner ---
         val mapTypeContainer = findViewById<LinearLayout>(R.id.mapTypeContainer)
         val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
         val mapTypes = arrayOf(
@@ -365,42 +387,39 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
+        // --- Node and Pipe Loading --- (Modified to load and display pipes)
         lifecycleScope.launch {
             nodes = nodeRepository.getNodes()
-            nodes?.forEach { node ->
-                val location = LatLng(node.location.latitude, node.location.longitude)
-                val marker = mMap.addMarker(
-                    MarkerOptions()
-                        .position(location)
-                        .title(node.name)
-                        .icon(getMarkerIconFromType(node.type))
-                )
-                marker?.let {
-                    nodesMap[it] = node
-                }
+            pipes = pipeRepository.getPipes()
 
-                // Set the marker click listener using the member variable
-                marker?.let {
-                    it.tag = node // Store the node in the marker's tag
-                    if (markerClickListener != null) {
-                        mMap.setOnMarkerClickListener(markerClickListener)
-                    }
-                }
-                // Add marker and node to nodesMap only if _id is not null
-                if (!node._id.isNullOrEmpty()) {
-                    marker?.let { nodesMap[it] = node }
-                }
+            nodes?.forEach { node ->
+                addMarkerToMap(node)
             }
 
-            mMap.setOnMarkerClickListener { marker ->
-                // Pass the marker to showNodeDetailsDialog
-                showNodeDetailsDialog(marker)
-                true
+            pipes?.forEach { pipe ->
+                addPipeToMap(pipe) // addPipeToMap now makes polylines clickable
+            }
+
+            // Set the polyline click listener *AFTER* loading pipes:
+            mMap.setOnPolylineClickListener { polyline ->
+                showPipeDetailsDialogFromPolyline(polyline) // Correctly calls the detail function
             }
         }
 
+
+
+
+        mMap.setOnPolylineClickListener { polyline ->
+            val pipe = this@MainActivity.pipesMap[polyline] // Use this@MainActivity (still good practice)
+            if (pipe != null) {
+                showPipeDetailsDialog(pipe)
+            }
+        }
+
+
         if (authRepository.getUserRole() == "admin") {
             fabAddNode.visibility = View.VISIBLE
+            fabAddPipe.visibility = View.VISIBLE // Show the pipe button for admins
         }
 
         fabAddNode.setOnClickListener {
@@ -410,6 +429,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 mMap.setOnMapClickListener(null)
             }
         }
+
+        // --- Pipe Drawing Setup (inside onMapReady) ---
+
+        fabAddPipe.setOnClickListener {
+            if (authRepository.getUserRole() == "admin") { // Double-check admin
+                startPipeDrawingMode()
+            }
+        }
+
 
         // GPS Location (with permission check)
         if (ActivityCompat.checkSelfPermission(
@@ -434,67 +462,121 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun createFilterChips() {
         val nodeTypes = arrayOf(
-            "Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή", "Pipes"
+            "Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή" // Removed "Pipes" from here
         )
+
+        //chip for pipes - Add this *OUTSIDE* the loop
+        val pipeChip = Chip(this)
+        pipeChip.text = "Σωλήνες" // Changed to Greek
+        pipeChip.isCheckable = true
+        pipeChip.isChecked = true // Initially show pipes
+        visibleNodeTypes.add("Pipes") // Keep this as "Pipes" internally
+        pipeChip.setOnClickListener {
+            handleChipClick(pipeChip) // Use same handler
+        }
+        chipGroup.addView(pipeChip)
+
 
         for (nodeType in nodeTypes) {
             val chip = Chip(this)
             chip.text = nodeType
             chip.isCheckable = true
-            chip.isChecked = true
-            visibleNodeTypes.add(nodeType)
+            chip.isChecked = true // Initially show all node types
+            visibleNodeTypes.add(nodeType) // Add all node types to the visible list
             chip.setOnClickListener {
-                handleChipClick(chip)
+                handleChipClick(chip) // Existing node type click handler
             }
-
             chipGroup.addView(chip)
         }
     }
-
-
     private fun handleChipClick(chip: Chip) {
-
         val type = chip.text.toString()
+        val internalType = if (type == "Σωλήνες") "Pipes" else type // Convert to internal representation
 
-        // Update visibleNodeTypes based on the chip's checked state
         if (chip.isChecked) {
-            if (!visibleNodeTypes.contains(type)) {
-                visibleNodeTypes.add(type)
+            if (!visibleNodeTypes.contains(internalType)) { // Use internalType
+                visibleNodeTypes.add(internalType) // Use internalType
             }
         } else {
-            visibleNodeTypes.remove(type)
+            visibleNodeTypes.remove(internalType) // Use internalType
         }
 
-        // Update marker visibility based on visibleNodeTypes
         nodesMap.forEach { (marker, node) ->
             marker.isVisible = visibleNodeTypes.contains(node.type)
         }
-        refreshMap()
+
+        // Always call filterAndRedrawPipes, no matter which chip.
+        filterAndRedrawPipes()
+    }
+
+    private fun filterAndRedrawPipes() {
+        lifecycleScope.launch {
+            // Get ALL pipes from the repository (unfiltered).  Important!
+            val allPipes = withContext(Dispatchers.IO) { pipeRepository.getPipes() } ?: return@launch
+
+            val filteredPipes = if (visibleNodeTypes.contains("Pipes")) { // Use the INTERNAL identifier here
+                allPipes // If "Pipes" is checked, show all pipes.
+            } else {
+                emptyList() // If "Pipes" is unchecked, show NO pipes.
+            }
+
+            // Update the map on the main thread
+            withContext(Dispatchers.Main) {
+                mMap.clear() // Clear everything: markers AND polylines
+
+                // Add filtered nodes
+                nodes?.forEach { node ->
+                    if (visibleNodeTypes.contains(node.type)) {
+                        addMarkerToMap(node)  //  nodes display logic
+                    }
+                }
+
+                // Add only the *filtered* pipes to the map
+                filteredPipes.forEach { pipe ->
+                    addPipeToMap(pipe) //add pipe and add to map
+                }
+                // Restore click listeners.  VERY IMPORTANT!
+                mMap.setOnMarkerClickListener(markerClickListener)
+                mMap.setOnPolylineClickListener { polyline -> // Re-apply the click listener
+                    showPipeDetailsDialogFromPolyline(polyline)
+                }
+            }
+        }
     }
 
     private fun refreshMap() {
-        mMap.clear() // Clear all markers
-        nodesMap.clear() // Clear the nodesMap
+        mMap.clear() // Clear *everything* (markers and polylines)
+        nodesMap.clear() // Clear the node map
 
         lifecycleScope.launch {
-            // Fetch the updated data first
+            // Fetch updated data for BOTH nodes and pipes
             nodes = withContext(Dispatchers.IO) {
                 nodeRepository.getNodes()
+            }
+            pipes = withContext(Dispatchers.IO){ // added pipes
+                pipeRepository.getPipes()
             }
 
             // Update the map on the main thread after data is fetched
             withContext(Dispatchers.Main) {
                 nodes?.forEach { node ->
                     if (visibleNodeTypes.contains(node.type)) {
-                        addMarkerToMap(node) // Re-add the marker only if its type is visible
+                        addMarkerToMap(node) // Re-add markers
                     }
                 }
-                // IMPORTANT: Re-set the listener *AFTER* adding markers:
+                pipes?.forEach{ pipe ->
+                    addPipeToMap(pipe) // Re-add pipes
+                }
+
+                // IMPORTANT: Re-set the listeners *AFTER* adding markers:
                 mMap.setOnMarkerClickListener(markerClickListener)
+                mMap.setOnPolylineClickListener { polyline ->
+                    showPipeDetailsDialogFromPolyline(polyline)
+                }
             }
         }
-
     }
+
     private fun showNodeCreationDialog(latLng: LatLng) {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_node_creation, null)
 
@@ -941,21 +1023,24 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun deleteNode(node: Node, marker: Marker) {
         lifecycleScope.launch {
             try {
+                Log.d("MainActivity", "deleteNode called for node: ${node.name}, id: ${node._id}")
                 val response = withContext(Dispatchers.IO) {
-                    apiService.deleteNode(node._id!!) // Assuming your deleteNode API call takes the node ID
+                    apiService.deleteNode(node._id!!)
                 }
 
                 if (response.isSuccessful) {
-                    // Remove the marker from the map
-                    marker.remove()
+                    Log.d("MainActivity", "Node deletion successful, removing marker: ${marker.title}")
+                    marker.remove() // Remove the marker from the map.
+                    nodesMap.remove(marker) // Remove the entry from nodesMap.
 
-                    // Remove the node from nodesMap
-                    nodesMap.remove(marker)
-
-                    // Optionally, update your 'nodes' list if you are using it for other purposes
+                    // **FIX: Update the 'nodes' list *immediately*.**
+                    nodes = nodes?.filter { it._id != node._id }
 
                     Toast.makeText(this@MainActivity, "Node deleted successfully", Toast.LENGTH_SHORT).show()
-                    refreshMap()
+                    // Reload pipes after deletion
+                    pipes = pipeRepository.getPipes()
+                    filterAndRedrawPipes()  // Now this will use the updated 'nodes' list
+
                 } else {
                     val errorBody = response.errorBody()?.string()
                     Log.e("MainActivity", "Failed to delete node: ${response.code()} - $errorBody")
@@ -966,7 +1051,430 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Toast.makeText(this@MainActivity, "Failed to delete node", Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
+
+    // --- Pipe Drawing Functions ---
+
+    private fun startPipeDrawingMode() {
+        isDrawingPipe = true
+        pipePoints.clear()  // Clear any previous points
+        tempPipeLine?.remove() // Remove any existing temporary line
+        tempPipeLine = null
+        mMap.setOnMarkerClickListener(null) // Remove the default marker click listener
+        clearTempMarkers() // NEW: Clear any existing temporary markers
+
+        Toast.makeText(this, "Tap on the map to add pipe points. Tap 'Create Pipe' when done.", Toast.LENGTH_LONG).show()
+
+        // Set a map click listener to add points
+        mMap.setOnMapClickListener { latLng ->
+            if (isDrawingPipe) {
+                addPointToPipe(latLng)
+            }
+        }
+
+        // --- Modify the FAB ---
+        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
+        fabAddPipe.setImageResource(android.R.drawable.ic_menu_save)  // Change to a "done" icon
+        fabAddPipe.setOnClickListener {
+            finishPipeDrawing() // Call a new function to finish drawing
+        }
+    }
+
+
+    private fun finishPipeDrawing() {
+        if (pipePoints.size < 2) {
+            Toast.makeText(this, "You need at least two points to create a pipe.", Toast.LENGTH_SHORT).show()
+            resetPipeDrawingState() // Go back to the initial state
+            return
+        }
+
+        isDrawingPipe = false // Exit drawing mode
+        mMap.setOnMapClickListener(null) // Remove the map click listener
+
+        // Restore the "Add Pipe" button
+        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
+        fabAddPipe.setImageResource(android.R.drawable.ic_menu_add) // Restore original icon
+        fabAddPipe.setOnClickListener {
+            if (authRepository.getUserRole() == "admin") {
+                startPipeDrawingMode() // Restart drawing mode on click
+            }
+        }
+        mMap.setOnMarkerClickListener(markerClickListener)
+
+        showPipeCreationDialog() // Show the dialog to enter pipe details
+    }
+
+    private fun addPointToPipe(latLng: LatLng) {
+        pipePoints.add(latLng)
+        updateTempPolyline() // Update the visual representation
+        addTempMarker(latLng) // Add a temporary marker
+    }
+
+
+    private fun updateTempPolyline() {
+        tempPipeLine?.remove() // Remove the previous line
+
+        if (pipePoints.size >= 2) { // Need at least 2 points
+            tempPipeLine = mMap.addPolyline(
+                PolylineOptions()
+                    .addAll(pipePoints)
+                    .color(Color.GRAY) // Temporary line color
+                    .width(5f)
+                    .clickable(false) // Temporary line not clickable
+            )
+        }
+    }
+
+    private fun resetPipeDrawingState() {
+        isDrawingPipe = false
+        pipePoints.clear()
+        tempPipeLine?.remove()
+        tempPipeLine = null
+        clearTempMarkers() // NEW: Clear temporary markers
+        mMap.setOnMapClickListener(null) // Remove pipe drawing listener
+        mMap.setOnMarkerClickListener(markerClickListener) // Restore node marker listener
+    }
+
+    private fun addTempMarker(latLng: LatLng) {
+        val marker =  mMap.addMarker(
+            MarkerOptions()
+                .position(latLng)
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)) // Use a distinct color
+                .anchor(0.5f, 0.5f) // Center the marker
+        )
+        marker?.let{tempMarkers.add(it)} // Add to the list , null check
+    }
+
+    private fun clearTempMarkers() {
+        for (marker in tempMarkers) {
+            marker.remove()
+        }
+        tempMarkers.clear()
+    }
+
+    private fun showPipeCreationDialog() {
+        // No need for startMarker, endMarker parameters anymore
+
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_creation, null)
+
+        // --- Find Views ---
+        val etStatus = dialogView.findViewById<Spinner>(R.id.spinnerPipeStatus)
+        val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow)
+        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength) // Keep as EditText
+        val etDiameter = dialogView.findViewById<EditText>(R.id.etPipeDiameter)
+        val etMaterial = dialogView.findViewById<EditText>(R.id.etPipeMaterial)
+
+        // Remove these, as we're not showing start/end node names now
+        // val tvStartNode = dialogView.findViewById<TextView>(R.id.tvStartNodeValue)
+        // val tvEndNode = dialogView.findViewById<TextView>(R.id.tvEndNodeValue)
+
+        // Remove these lines as well:
+        // tvStartNode.text = startNode.name
+        // tvEndNode.text = endNode.name
+
+        // -- Set up Spinner
+        val pipeStatuses = resources.getStringArray(R.array.pipe_statuses)
+        val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, pipeStatuses)
+        statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        etStatus.adapter = statusAdapter
+
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setTitle("Create New Pipe")
+            .setPositiveButton("Create", null) // Set to null initially
+            .setNegativeButton("Cancel") { _, _ ->
+                resetPipeDrawingState() // Reset state if canceled
+            }
+            .create()
+
+        dialog.setOnShowListener {
+            val createButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            createButton.setOnClickListener {
+                val status = etStatus.selectedItem.toString()
+                val flow = etFlow.text.toString().toIntOrNull() ?: 0
+                val length = calculatePipeLength(pipePoints)   //Calculate Length
+                val diameter = etDiameter.text.toString().toIntOrNull()
+                val material = etMaterial.text.toString().trim()
+
+                if (status.isEmpty()) {
+                    Toast.makeText(this, "Status is required", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                //Added Validation for at least two points
+                if(pipePoints.size < 2) {
+                    Toast.makeText(this, "You need to select at least two points for a pipe", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                val newPipe = Pipe(
+                    _id = null, // Let the backend generate
+                    coordinates = pipePoints.map { com.example.deiakwaternetwork.model.Location(it.latitude, it.longitude) }, // Convert LatLng to Location
+                    status = status,
+                    flow = flow,
+                    length = length,
+                    diameter = diameter,
+                    material = material,
+                    createdAt = null, // Let backend handle
+                    updatedAt = null  // Let backend handle
+                )
+                createPipeAndAddToMap(newPipe)
+                dialog.dismiss()
+                resetPipeDrawingState() // Reset after creation
+            }
+        }
+        dialog.show()
+    }
+
+    private fun createPipeAndAddToMap(pipe: Pipe) {
+        lifecycleScope.launch {
+            val createdPipe = pipeRepository.createPipe(pipe)
+            if (createdPipe != null) {
+                addPipeToMap(createdPipe) // Add to map *after* successful creation
+                Toast.makeText(this@MainActivity, "Pipe created successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to create pipe", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+    private fun addPipeToMap(pipe: Pipe) {
+        val polyline = mMap.addPolyline(
+            PolylineOptions()
+                .addAll(pipe.coordinates.map {LatLng(it.latitude, it.longitude)}) //Convert to LatLng
+                .color(Color.BLUE)
+                .width(10f)
+                .clickable(true) // Make sure it's clickable  <-- THIS IS CRUCIAL
+        )
+        // Associate the polyline with the Pipe object using pipesMap (IMPORTANT)
+        pipesMap[polyline] = pipe // Correct way to store the pipe
+    }
+
+    private fun showPipeDetailsDialogFromPolyline(polyline: Polyline) {
+        // Retrieve the Pipe object from the polyline's tag
+        val pipe = pipesMap[polyline] // Use this@MainActivity
+        if (pipe != null) {
+            showPipeDetailsDialog(pipe)
+        } else {
+            // Handle the case where the polyline doesn't have a Pipe tag.
+            Log.e("MainActivity", "Polyline tag is not a Pipe object.")
+
+        }
+    }
+
+
+    private fun showPipeDetailsDialog(pipe: Pipe) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_details, null)
+
+        //val tvStartNodeValue = dialogView.findViewById<TextView>(R.id.tvStartNodeValue) //Removed
+        //val tvEndNodeValue = dialogView.findViewById<TextView>(R.id.tvEndNodeValue)   //Removed
+        val tvPipeStatusValue = dialogView.findViewById<TextView>(R.id.tvPipeStatusValue)
+        val tvPipeFlowValue = dialogView.findViewById<TextView>(R.id.tvPipeFlowValue)
+        val tvPipeLengthValue = dialogView.findViewById<TextView>(R.id.tvPipeLengthValue)
+        val tvPipeDiameterValue = dialogView.findViewById<TextView>(R.id.tvPipeDiameterValue)
+        val tvPipeMaterialValue = dialogView.findViewById<TextView>(R.id.tvPipeMaterialValue)
+        val tvPipeCoordinates = dialogView.findViewById<TextView>(R.id.tvPipeCoordinatesValue) // New TextView for coordinates
+
+
+        val btnEditPipe = dialogView.findViewById<Button>(R.id.btnEditPipe)
+        val btnDeletePipe = dialogView.findViewById<Button>(R.id.btnDeletePipe)
+        val btnClose = dialogView.findViewById<Button>(R.id.btnClose)
+
+        // Set values (handle nulls gracefully)
+        //tvStartNodeValue.text = startNode?.name ?: "Unknown" //Removed
+        //tvEndNodeValue.text = endNode?.name ?: "Unknown"     // Removed
+        tvPipeStatusValue.text = pipe.status
+        tvPipeFlowValue.text = pipe.flow.toString()
+        tvPipeLengthValue.text = pipe.length?.toString() ?: "N/A"
+        tvPipeDiameterValue.text = pipe.diameter?.toString() ?: "N/A"
+        tvPipeMaterialValue.text = pipe.material ?: "N/A"
+
+        // Format and display coordinates
+        val coordinatesText = pipe.coordinates.joinToString("\n") {
+            "(${it.latitude}, ${it.longitude})"
+        }
+        tvPipeCoordinates.text = coordinatesText
+
+
+        if (authRepository.getUserRole() == "admin") {
+            btnEditPipe.visibility = View.VISIBLE
+            btnDeletePipe.visibility = View.VISIBLE
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setTitle("Pipe Details")
+            .create()
+
+        btnClose.setOnClickListener { dialog.dismiss() }
+
+        btnEditPipe.setOnClickListener {
+            dialog.dismiss()
+            showEditPipeDialog(pipe)
+        }
+
+        btnDeletePipe.setOnClickListener {
+            dialog.dismiss()
+            AlertDialog.Builder(this)
+                .setTitle("Confirm Delete")
+                .setMessage("Are you sure you want to delete this pipe?")
+                .setPositiveButton("Delete") { _, _ ->
+                    deletePipeAndRemoveFromMap(pipe)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        dialog.show()
+    }
+
+
+    private fun showEditPipeDialog(pipe: Pipe) {
+
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_edit, null)
+
+        val etStatus = dialogView.findViewById<Spinner>(R.id.spinnerPipeStatus)
+        val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow)
+        val etLength = dialogView.findViewById<EditText>(R.id.etPipeLength) // Keep as EditText
+        val etDiameter = dialogView.findViewById<EditText>(R.id.etPipeDiameter)
+        val etMaterial = dialogView.findViewById<EditText>(R.id.etPipeMaterial)
+        //val tvStartNode = dialogView.findViewById<TextView>(R.id.tvStartNodeValue) //Removed
+        //val tvEndNode = dialogView.findViewById<TextView>(R.id.tvEndNodeValue) //Removed
+
+
+        val pipeStatuses = resources.getStringArray(R.array.pipe_statuses)
+        val statusAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, pipeStatuses)
+        statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        etStatus.adapter = statusAdapter
+
+
+        // Set initial values (handle nulls)
+        etStatus.setSelection(statusAdapter.getPosition(pipe.status))
+        etFlow.setText(pipe.flow.toString())
+        etLength.setText(pipe.length?.toString() ?: "") // Show the saved value
+        etDiameter.setText(pipe.diameter?.toString() ?: "")
+        etMaterial.setText(pipe.material ?: "")
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setTitle("Edit Pipe")
+            .setPositiveButton("Save", null) // Set to null initially
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            saveButton.setOnClickListener {
+                val updatedStatus = etStatus.selectedItem.toString()
+                val updatedFlow = etFlow.text.toString().toIntOrNull() ?: 0
+                val updatedLength =  calculatePipeLength(pipePoints)
+                val updatedDiameter = etDiameter.text.toString().toIntOrNull()
+                val updatedMaterial = etMaterial.text.toString().trim()
+
+
+                val updatedPipe = pipe.copy(
+                    status = updatedStatus,
+                    flow = updatedFlow,
+                    length = updatedLength, // Use the new calculated length
+                    diameter = updatedDiameter,
+                    material = updatedMaterial,
+                    coordinates = pipePoints.map{com.example.deiakwaternetwork.model.Location(it.latitude, it.longitude)}
+                )
+
+                pipe._id?.let { id ->  // Use safe call and let for null safety
+                    updatePipeAndRefreshMap(id, updatedPipe)
+                }
+                dialog.dismiss()
+
+            }
+        }
+        dialog.show()
+    }
+    private fun updatePipeAndRefreshMap(pipeId: String, updatedPipe: Pipe) {
+        lifecycleScope.launch {
+            val result = pipeRepository.updatePipe(pipeId, updatedPipe)
+            if (result != null) {
+                // Find and remove the old polyline, iterating through pipesMap:
+                val oldPolyline = pipesMap.entries.find { it.value._id == pipeId }?.key
+                oldPolyline?.remove()
+                pipesMap.remove(oldPolyline)
+
+                // Add the updated pipe to the map
+                addPipeToMap(result) // This will draw the new polyline, and add to the map
+                Toast.makeText(this@MainActivity, "Pipe updated successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to update pipe", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun deletePipeAndRemoveFromMap(pipe: Pipe) {
+        lifecycleScope.launch {
+            pipe._id?.let { pipeId ->
+                val success = pipeRepository.deletePipe(pipeId)
+                if (success) {
+                    // 1. Find and remove the polyline from the map:
+                    val polyline = pipesMap.entries.find { it.value._id == pipeId }?.key
+                    polyline?.remove()
+
+                    // 2. Remove the polyline from pipesMap:
+                    pipesMap.remove(polyline)
+
+                    // 3. Crucially, remove the pipe from the 'pipes' list:
+                    pipes = pipes?.filter { it._id != pipeId }
+
+                    Toast.makeText(this@MainActivity, "Pipe deleted successfully", Toast.LENGTH_SHORT).show()
+
+                    // 4. Redraw pipes
+                    refreshMapAfterPipeChange()  // Call a helper function!
+
+                } else {
+                    Toast.makeText(this@MainActivity, "Failed to delete pipe", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun refreshMapAfterPipeChange(){
+        lifecycleScope.launch{
+            withContext(Dispatchers.Main){
+                mMap.clear() //clear the map
+
+                //re add the filtered nodes
+                nodes?.forEach { node ->
+                    if (visibleNodeTypes.contains(node.type)) {
+                        addMarkerToMap(node)
+                    }
+                }
+
+                pipes?.forEach{ pipe ->
+                    addPipeToMap(pipe) // Re-add pipes
+                }
+
+                // IMPORTANT: Re-set the listeners *AFTER* adding markers:
+                mMap.setOnMarkerClickListener(markerClickListener)
+                mMap.setOnPolylineClickListener { polyline ->
+                    showPipeDetailsDialogFromPolyline(polyline)
+                }
+            }
+        }
+    }
+
+    // Helper function to calculate the total length of the pipe
+    private fun calculatePipeLength(points: List<LatLng>): Double {
+        var totalDistance = 0.0
+        if (points.size >= 2) {
+            for (i in 0 until points.size - 1) {
+                val start = points[i]
+                val end = points[i + 1]
+                val results = FloatArray(1)
+                Location.distanceBetween(start.latitude, start.longitude, end.latitude, end.longitude, results)
+                totalDistance += results[0]
+            }
+        }
+        return totalDistance
     }
 
     override fun onStop() {

@@ -29,15 +29,6 @@ class LoginActivity : AppCompatActivity() {
 
         authRepository = AuthRepository(this)
 
-        //button to test connection
-        val testConnectionButton = findViewById<Button>(R.id.testConnectionButton)
-        testConnectionButton.setOnClickListener {
-            lifecycleScope.launch {
-                testConnection()
-            }
-        }
-
-
         val emailEditText = findViewById<EditText>(R.id.emailEditText)
         val passwordEditText = findViewById<EditText>(R.id.passwordEditText)
         val loginButton = findViewById<Button>(R.id.loginButton)
@@ -71,40 +62,30 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-   //test connection button on login || also added on activity_login.xml
-    private suspend fun testConnection() {
-        withContext(Dispatchers.IO) {
-            try {
-                val url = URL("http://192.168.2.5:3000/") // Your backend URL
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connect()
-
-                val responseCode = connection.responseCode
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    // Connection successful
-                    Log.d("MainActivity", "Connection successful")
-                    runOnUiThread {  // Update UI on the main thread
-                        Toast.makeText(this@LoginActivity, "Connection successful", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    // Connection failed
-                    Log.e("MainActivity", "Connection failed: $responseCode")
-                    runOnUiThread {
-                        Toast.makeText(this@LoginActivity, "Connection failed", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Connection error: ${e.message}")
-                runOnUiThread {
-                    Toast.makeText(this@LoginActivity, "Connection failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
     private fun validateInput(email: String, password: String): Boolean {
-        // Implement your input validation logic here
-        // ...
-        return true // Return true if input is valid, false otherwise
+        val emailEditText = findViewById<EditText>(R.id.emailEditText)
+        val passwordEditText = findViewById<EditText>(R.id.passwordEditText)
+        emailEditText.error = null // Clear previous errors
+        passwordEditText.error = null
+        var isValid = true
+
+        if (email.isEmpty()) {
+            emailEditText.error = "Email is required"
+            isValid = false
+        } else if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            emailEditText.error = "Invalid email format"
+            isValid = false
+        }
+
+        if (password.isEmpty()) {
+            passwordEditText.error = "Password is required"
+            isValid = false
+        } else if (password.length < 6) {
+            passwordEditText.error = "Password must be at least 6 characters long"
+            isValid = false
+        }
+
+
+        return isValid
     }
 }
