@@ -69,13 +69,14 @@ import android.graphics.Canvas
 import com.google.android.gms.maps.model.RoundCap
 import android.graphics.Paint // Add this import at the top of your file
 import android.graphics.drawable.VectorDrawable
+import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
-
+import android.content.Context
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
 
 
 
-class MainActivity : AppCompatActivity(), OnMapReadyCallback {
+class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCameraIdleListener {
 
     private lateinit var mMap: GoogleMap
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -113,10 +114,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val pipesMap: MutableMap<Polyline, PipeData> = mutableMapOf()
 
     private var tempMarkers: MutableList<Marker> = mutableListOf() // Add this list
-    data class PipeData(val pipe: Pipe)
+    data class PipeData(val pipe: Pipe, val arrowMarkers: MutableList<Marker> = mutableListOf())
     private val polylineAnimators = mutableMapOf<Polyline, ValueAnimator>() // Store animators
 
     private val ARROW_SPACING_METERS = 50.0 // Adjust this as needed
+
+    private val baseIconSizeDp = 25 // NODE markers size
+    private val baseArrowSizeDp = 10 // ARROW markers size
+    private val visibilityThresholdZoom = 15f // Zoom level for icons to appear
+    private val pipeVisibilityThresholdZoom = 15f
+    private val fixedIconSizePx: Int by lazy { (baseIconSizeDp * resources.displayMetrics.density).toInt() }
+    private val fixedArrowSizePx: Int by lazy { (baseArrowSizeDp * resources.displayMetrics.density).toInt() }
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -342,7 +351,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST_CODE)
         }
 
-        // --- Map Type Spinner --- (This part was missing in the previous response)
+        // --- Map Type Spinner --- (Keep this as it is)
         val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
         val mapTypes = arrayOf("Προεπιλογή", "Δορυφόρος", "Έδαφος", "Υβριδικό")
         val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
@@ -366,10 +375,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
-        // Set up listeners *ONCE*, after the map is fully loaded.  This is crucial.
+        // Set up listeners *ONCE*, after the map is fully loaded.
         mMap.setOnMapLoadedCallback {
 
-            // Node click listener. Make markerClickListener a var, not a val
+            // Node click listener.
             markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
                 val node = nodesMap[marker]
                 if (node != null) {
@@ -396,11 +405,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     nodes?.forEach { node -> addMarkerToMap(node) }
                     // Then add pipes (which depend on nodes)
                     pipes?.forEach { pipe -> addPipeToMap(pipe) }
+                    updateMarkerIcons() //  ***CALL updateMarkerIcons HERE***
                 }
             }
         }
 
-        // Set up FABs (Floating Action Buttons)
+        // Set the camera idle listener.  Do this *outside* of onMapLoadedCallback,
+        // but *inside* onMapReady.
+        mMap.setOnCameraIdleListener(this)
+
+
+        // Set up FABs (Floating Action Buttons) - Keep this part as is
         val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
         val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
 
@@ -423,6 +438,49 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
     }
+    override fun onCameraIdle() {
+        updateMarkerIcons()
+    }
+
+    private fun updateMarkerIcons() {
+        val currentZoom = mMap.cameraPosition.zoom
+
+        val nodeMarkersVisible = currentZoom >= visibilityThresholdZoom
+        nodesMap.keys.forEach { it.isVisible = nodeMarkersVisible }
+
+        // Manage arrow and polyline visibility
+        if (currentZoom >= visibilityThresholdZoom) {
+            pipesMap.forEach { (polyline, pipeData) ->
+                addArrowMarkers(polyline, pipeData.pipe.flow) // Re-add arrow markers
+                //CHECK FOR PIPE VISIBILITY THRESHOLD
+                polyline.isVisible = visibleNodeTypes.contains("Pipes") && currentZoom >= pipeVisibilityThresholdZoom // AND CHECK ZOOM
+            }
+        } else {
+            pipesMap.forEach { (polyline, pipeData) ->
+                // Hide arrow markers when zoomed out
+                pipeData.arrowMarkers.forEach { it.isVisible = false }
+                //CHECK FOR PIPE VISIBILITY THRESHOLD
+                polyline.isVisible = visibleNodeTypes.contains("Pipes") && currentZoom >= pipeVisibilityThresholdZoom // AND CHECK ZOOM
+
+            }
+        }
+    }
+
+    private fun createBitmapDescriptor(iconResource: Int, width: Int, height: Int): BitmapDescriptor {
+        val drawable = ResourcesCompat.getDrawable(resources, iconResource, null)
+        return if (drawable is VectorDrawableCompat || drawable is VectorDrawable) {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+            BitmapDescriptorFactory.fromBitmap(bitmap)
+        } else {
+            val originalBitmap = BitmapFactory.decodeResource(resources, iconResource)
+            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, false)
+            BitmapDescriptorFactory.fromBitmap(resizedBitmap)
+        }
+    }
+
 
     private fun createFilterChips() {
         val nodeTypes = arrayOf(
@@ -475,8 +533,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun filterAndRedrawPipes() {
         val showPipes = visibleNodeTypes.contains("Pipes")
-        pipesMap.forEach { (polyline, _) -> // '_' because we don't need pipeData
-            polyline.isVisible = showPipes
+        val zoomSufficient = mMap.cameraPosition.zoom >= pipeVisibilityThresholdZoom // Calculate once
+
+        pipesMap.forEach { (polyline, pipeData) ->
+            polyline.isVisible = showPipes && zoomSufficient // Combined check
+
+            if (!showPipes) {
+                pipeData.arrowMarkers.forEach { it.isVisible = false }
+            } else { // showPipes == true
+                if (mMap.cameraPosition.zoom >= visibilityThresholdZoom) {
+                    addArrowMarkers(polyline, pipeData.pipe.flow) // Show arrows if zoomed in
+                } else{
+                    //IF PIPES SHOW BUT ZOOM NOT SUFFICIENT, HIDE THE ARROWS
+                    pipeData.arrowMarkers.forEach{it.isVisible = false}
+                }
+            }
         }
     }
 
@@ -603,14 +674,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun addMarkerToMap(node: Node) {
         val latLng = LatLng(node.location.latitude, node.location.longitude)
 
-        val iconWidthDp = 48
-        val iconHeightDp = 48
-        val density = resources.displayMetrics.density
-        val iconWidthPx = (iconWidthDp * density).toInt()
-        val iconHeightPx = (iconHeightDp * density).toInt()
-
-        Log.d("MarkerDebug", "addMarkerToMap: iconWidthPx = $iconWidthPx, iconHeightPx = $iconHeightPx") // Keep logging
-
         val markerIconResource = when (node.type) {
             "Κλειδί" -> R.drawable.kleidi_icon
             "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
@@ -625,32 +688,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             return
         }
 
-        // Use VectorDrawableCompat for vector drawables
-        val drawable = ResourcesCompat.getDrawable(resources, markerIconResource!!, null)
-        val markerIcon = if (drawable is VectorDrawableCompat || drawable is VectorDrawable) {
-            val bitmap = Bitmap.createBitmap(iconWidthPx, iconHeightPx, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, iconWidthPx, iconHeightPx)
-            drawable.draw(canvas)
-            BitmapDescriptorFactory.fromBitmap(bitmap)
-        } else {
-            // Fallback for non-vector drawables (e.g., PNGs)
-            val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
-            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
-            BitmapDescriptorFactory.fromBitmap(resizedBitmap)
-        }
-
+        // Use the createBitmapDescriptor function (defined below)
+        val markerIcon = createBitmapDescriptor(markerIconResource, fixedIconSizePx, fixedIconSizePx)
 
         val marker = mMap.addMarker(
             MarkerOptions()
                 .position(latLng)
                 .title(node.name)
-                .icon(markerIcon)
+                .icon(markerIcon) //  SET THE ICON HERE
                 .anchor(0.5f, 1.0f)
         )
         marker?.let {
             nodesMap[it] = node
-            mMap.setOnMarkerClickListener(markerClickListener) // Ensure click listener is set
         }
     }
 
@@ -1177,22 +1226,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .width(10f)
             .color(Color.BLUE)
             .clickable(true)
-            .startCap(RoundCap())  // Use RoundCap for nice ends
-            .endCap(RoundCap())     // Use RoundCap for nice ends
+            .startCap(RoundCap())
+            .endCap(RoundCap())
 
         val polyline = mMap.addPolyline(polylineOptions)
         Log.d("PipeDebug", "  Polyline added: ${polyline.id}")
         pipesMap[polyline] = PipeData(pipe)
 
-        // Add arrow markers *after* adding the polyline
+        // Set initial visibility based on zoom and chip selection:
+        polyline.isVisible = visibleNodeTypes.contains("Pipes") && mMap.cameraPosition.zoom >= pipeVisibilityThresholdZoom
+
         addArrowMarkers(polyline, pipe.flow)
     }
+
+
     private fun addArrowMarkers(polyline: Polyline, flowDirection: Int?) {
         val points = polyline.points
-        if (points.size < 2) return // Need at least 2 points
+        if (points.size < 2) return
 
-        // Create the arrowhead bitmap (do this ONCE, not repeatedly)
-        val arrowIcon = createArrowIcon(Color.BLUE) // Use consistent color
+        // Get the PipeData associated with the polyline
+        val pipeData = pipesMap[polyline] ?: return // Early return if no PipeData
+
+        // Clear any existing arrow markers *before* adding new ones.
+        pipeData.arrowMarkers.forEach { it.remove() }
+        pipeData.arrowMarkers.clear()
+
+
+        val arrowIcon = createArrowIcon(this)
 
         var distanceSoFar = 0.0
         for (i in 0 until points.size - 1) {
@@ -1200,44 +1260,47 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val end = points[i + 1]
             val segmentDistance = SphericalUtil.computeDistanceBetween(start, end)
 
-            // Place arrows along this segment
             while (distanceSoFar < segmentDistance) {
-                // Interpolate to find the point for the arrow
                 val arrowLatLng = SphericalUtil.interpolate(start, end, distanceSoFar / segmentDistance)
-
-                // Calculate bearing (rotation) for the marker
                 val bearing = SphericalUtil.computeHeading(start, end)
-                val adjustedBearing = if (flowDirection == 1) bearing + 180 else bearing // Reverse if needed
+                val adjustedBearing = if (flowDirection == 1) bearing + 180 else bearing
 
-                // Add the arrow marker
-                mMap.addMarker(
+                val marker = mMap.addMarker(  // Store the marker reference!
                     MarkerOptions()
                         .position(arrowLatLng)
                         .icon(arrowIcon)
-                        .rotation(adjustedBearing.toFloat()) // Rotate the marker
-                        .anchor(0.5f, 0.5f) // Center the marker
-                        .flat(true)          // Keep the marker flat on the map
+                        .rotation(adjustedBearing.toFloat())
+                        .anchor(0.5f, 0.5f)
+                        .flat(true)
                 )
+
+                // Add the marker to the list in PipeData
+                marker?.let { pipeData.arrowMarkers.add(it) } // Add to the list!
 
                 distanceSoFar += ARROW_SPACING_METERS
             }
-            distanceSoFar -= segmentDistance  // Adjust for the next segment
+            distanceSoFar -= segmentDistance
         }
     }
 
-    private fun createArrowIcon(color: Int): BitmapDescriptor {
-        val arrowSizeDp = 48 // Use dp
-        val density = resources.displayMetrics.density
-        val arrowSizePx = (arrowSizeDp * density).toInt()
 
-        Log.d("MarkerDebug", "createArrowIcon: arrowSizePx = $arrowSizePx") // Keep the log
-
+    private fun showPipeDetailsDialogFromPolyline(polyline: Polyline) {
+        val pipeData = pipesMap[polyline] // Get the PipeData object
+        if (pipeData != null) {
+            showPipeDetailsDialog(pipeData.pipe) // Access the .pipe property
+        } else {
+            //IMPORTANT
+            Log.e("MainActivity", "Polyline has no associated PipeData.")
+        }
+    }
+    private fun createArrowIcon(context: Context): BitmapDescriptor {
+        val arrowSizePx = fixedArrowSizePx
         val bitmap = Bitmap.createBitmap(arrowSizePx, arrowSizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.TRANSPARENT)
 
         val paint = Paint().apply {
-            this.color = color
+            this.color = ContextCompat.getColor(context, R.color.deiakBlue) // Use ContextCompat.getColor
             style = Paint.Style.FILL
             isAntiAlias = true
         }
@@ -1251,18 +1314,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         canvas.drawPath(path, paint)
         return BitmapDescriptorFactory.fromBitmap(bitmap)
-    }
-
-
-
-    private fun showPipeDetailsDialogFromPolyline(polyline: Polyline) {
-        val pipeData = pipesMap[polyline] // Get the PipeData object
-        if (pipeData != null) {
-            showPipeDetailsDialog(pipeData.pipe) // Access the .pipe property
-        } else {
-            //IMPORTANT
-            Log.e("MainActivity", "Polyline has no associated PipeData.")
-        }
     }
 
 
