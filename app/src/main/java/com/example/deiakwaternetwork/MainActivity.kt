@@ -68,6 +68,11 @@ import com.google.maps.android.SphericalUtil
 import android.graphics.Canvas
 import com.google.android.gms.maps.model.RoundCap
 import android.graphics.Paint // Add this import at the top of your file
+import android.graphics.drawable.VectorDrawable
+import androidx.core.content.res.ResourcesCompat
+
+import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
+
 
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
@@ -92,7 +97,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var visibleNodeTypes: MutableList<String> = mutableListOf()
     private lateinit var chipGroup: ChipGroup
 
-    private var markerClickListener: GoogleMap.OnMarkerClickListener? = null
+    private var markerClickListener: GoogleMap.OnMarkerClickListener? = null //change val to var
+
 
     private var isDrawingPipe = false
 
@@ -316,7 +322,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
         )
         mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
-        mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Set default map type, and ensure no custom style
+        mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Set default map type
+
+        // Prevent the camera from moving outside of Corfu
         mMap.setOnCameraMoveListener {
             if (!corfuBounds.contains(mMap.cameraPosition.target)) {
                 mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
@@ -334,10 +342,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST_CODE)
         }
 
-        // Set up listeners *AFTER* map is fully loaded
+        // --- Map Type Spinner --- (This part was missing in the previous response)
+        val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
+        val mapTypes = arrayOf("Προεπιλογή", "Δορυφόρος", "Έδαφος", "Υβριδικό")
+        val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
+        mapTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        mapTypeSpinner.adapter = mapTypeAdapter
+        mapTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                val selectedMapType = when (position) {
+                    0 -> GoogleMap.MAP_TYPE_NORMAL
+                    1 -> GoogleMap.MAP_TYPE_SATELLITE
+                    2 -> GoogleMap.MAP_TYPE_TERRAIN
+                    3 -> GoogleMap.MAP_TYPE_HYBRID
+                    else -> GoogleMap.MAP_TYPE_NORMAL
+                }
+                mMap.mapType = selectedMapType
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>) {
+                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Default
+                mapTypeSpinner.setSelection(0) // Select "Normal" in the spinner
+            }
+        }
+
+        // Set up listeners *ONCE*, after the map is fully loaded.  This is crucial.
         mMap.setOnMapLoadedCallback {
 
-            // Node click listener.  Use the markerClickListener you already have.
+            // Node click listener. Make markerClickListener a var, not a val
             markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
                 val node = nodesMap[marker]
                 if (node != null) {
@@ -349,12 +381,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
             mMap.setOnMarkerClickListener(markerClickListener)
 
-            // Polyline click listener - *CRUCIAL* to set this here.
+            // Polyline click listener.
             mMap.setOnPolylineClickListener { polyline ->
                 showPipeDetailsDialogFromPolyline(polyline)
             }
 
-            // --- Now, load BOTH nodes and pipes *after* the listeners are set ---
+            // --- Load BOTH nodes and pipes *after* the listeners are set ---
             lifecycleScope.launch {
                 nodes = withContext(Dispatchers.IO) { nodeRepository.getNodes() }
                 pipes = withContext(Dispatchers.IO) { pipeRepository.getPipes() }
@@ -388,29 +420,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         fabAddPipe.setOnClickListener {
             if (authRepository.getUserRole() == "admin") {
                 startPipeDrawingMode()
-            }
-        }
-
-        // --- Map Type Spinner ---
-        val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
-        val mapTypes = arrayOf("Προεπιλογή", "Δορυφόρος", "Έδαφος", "Υβριδικό")
-        val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
-        mapTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        mapTypeSpinner.adapter = mapTypeAdapter
-        mapTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
-                val selectedMapType = when (position) {
-                    0 -> GoogleMap.MAP_TYPE_NORMAL
-                    1 -> GoogleMap.MAP_TYPE_SATELLITE
-                    2 -> GoogleMap.MAP_TYPE_TERRAIN
-                    3 -> GoogleMap.MAP_TYPE_HYBRID
-                    else -> GoogleMap.MAP_TYPE_NORMAL
-                }
-                mMap.mapType = selectedMapType
-            }
-            override fun onNothingSelected(parent: AdapterView<*>) {
-                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Default
-                mapTypeSpinner.setSelection(0) // Select "Normal" in the spinner
             }
         }
     }
@@ -588,19 +597,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+
+
+
     private fun addMarkerToMap(node: Node) {
         val latLng = LatLng(node.location.latitude, node.location.longitude)
 
-        // Assuming you want the icon to be 48dp wide (adjust as needed)
         val iconWidthDp = 48
-        val iconHeightDp = 48 // Assuming a square icon, adjust if necessary
-
-        // Convert dp to pixels
+        val iconHeightDp = 48
         val density = resources.displayMetrics.density
         val iconWidthPx = (iconWidthDp * density).toInt()
         val iconHeightPx = (iconHeightDp * density).toInt()
 
-        // Get the appropriate icon based on node type
+        Log.d("MarkerDebug", "addMarkerToMap: iconWidthPx = $iconWidthPx, iconHeightPx = $iconHeightPx") // Keep logging
+
         val markerIconResource = when (node.type) {
             "Κλειδί" -> R.drawable.kleidi_icon
             "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
@@ -608,57 +618,39 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             "Γωνία" -> R.drawable.gonia_icon
             "Κολεκτέρ" -> R.drawable.kolekter_icon
             "Παροχή" -> R.drawable.paroxi_icon
-            else -> null // Handle the case where the type is not recognized
+            else -> null
         }
-
-        // Check if a valid icon resource was found
-        if (markerIconResource != null) {
-            // Get the original bitmap
-            val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
-
-            // Resize the bitmap
-            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
-
-            // Create a BitmapDescriptor from the resized bitmap
-            val markerIcon = BitmapDescriptorFactory.fromBitmap(resizedBitmap)
-
-            val marker = mMap.addMarker( //Store the returned marker
-                MarkerOptions()
-                    .position(latLng)
-                    .title(node.name)
-                    .icon(markerIcon)
-                    .anchor(0.5f, 1.0f) // Set anchor to bottom-center
-            )
-            marker?.let {
-                nodesMap[it] = node //Store newly created marker in the map
-                mMap.setOnMarkerClickListener(markerClickListener)
-            }
-        } else {
-            // Handle the case where the node type is not recognized (e.g., log an error message)
+        if (markerIconResource == null){
             Log.e("addMarkerToMap", "Unrecognized node type: ${node.type}")
+            return
         }
-    }
-    // Handle the permission request response
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, enable location (with check)
-                if (ActivityCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-                ) {
-                    mMap.isMyLocationEnabled = true
-                }
-            } else {
-                // Permission denied, show a message
-                showLocationPermissionDeniedDialog()
-            }
+
+        // Use VectorDrawableCompat for vector drawables
+        val drawable = ResourcesCompat.getDrawable(resources, markerIconResource!!, null)
+        val markerIcon = if (drawable is VectorDrawableCompat || drawable is VectorDrawable) {
+            val bitmap = Bitmap.createBitmap(iconWidthPx, iconHeightPx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, iconWidthPx, iconHeightPx)
+            drawable.draw(canvas)
+            BitmapDescriptorFactory.fromBitmap(bitmap)
+        } else {
+            // Fallback for non-vector drawables (e.g., PNGs)
+            val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
+            val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
+            BitmapDescriptorFactory.fromBitmap(resizedBitmap)
+        }
+
+
+        val marker = mMap.addMarker(
+            MarkerOptions()
+                .position(latLng)
+                .title(node.name)
+                .icon(markerIcon)
+                .anchor(0.5f, 1.0f)
+        )
+        marker?.let {
+            nodesMap[it] = node
+            mMap.setOnMarkerClickListener(markerClickListener) // Ensure click listener is set
         }
     }
 
@@ -912,15 +904,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun getMarkerIconFromType(nodeType: String): BitmapDescriptor {
+        // --- Fixed Size ---
         val iconWidthDp = 48
-        val iconHeightDp = 48 // Assuming a square icon, adjust if necessary
+        val iconHeightDp = 48
 
-        // Convert dp to pixels
+        // --- Convert dp to pixels ---
         val density = resources.displayMetrics.density
         val iconWidthPx = (iconWidthDp * density).toInt()
         val iconHeightPx = (iconHeightDp * density).toInt()
 
-        // Get the appropriate icon resource based on node type
+        Log.d("MarkerDebug", "getMarkerIconFromType: iconWidthPx = $iconWidthPx, iconHeightPx = $iconHeightPx") // Keep Logging
+
+        // --- Rest is similar, but using dynamic sizes ---
         val markerIconResource = when (nodeType) {
             "Κλειδί" -> R.drawable.kleidi_icon
             "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
@@ -933,17 +928,24 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 null
             } // Handle unrecognized types
         }
+        if (markerIconResource == null){
+            Log.e("addMarkerToMap", "Unrecognized node type: $nodeType")
+            return BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+        }
 
-        return if (markerIconResource != null) {
-            // Resize the bitmap
+        // Use VectorDrawableCompat for vector drawables
+        val drawable = ResourcesCompat.getDrawable(resources, markerIconResource!!, null) //Added !!
+        return if (drawable is VectorDrawableCompat || drawable is VectorDrawable) {
+            val bitmap = Bitmap.createBitmap(iconWidthPx, iconHeightPx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, iconWidthPx, iconHeightPx)
+            drawable.draw(canvas)
+            BitmapDescriptorFactory.fromBitmap(bitmap)
+        } else {
+            // Fallback for non-vector drawables (e.g., PNGs)
             val originalBitmap = BitmapFactory.decodeResource(resources, markerIconResource)
             val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, iconWidthPx, iconHeightPx, false)
-
-            // Create and return a BitmapDescriptor
             BitmapDescriptorFactory.fromBitmap(resizedBitmap)
-        } else {
-            // Return a default marker if no icon is found
-            BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
         }
     }
 
@@ -1224,36 +1226,32 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun createArrowIcon(color: Int): BitmapDescriptor {
-        val arrowSize = 48 // Desired size in pixels (e.g., 48x48)
+        val arrowSizeDp = 48 // Use dp
+        val density = resources.displayMetrics.density
+        val arrowSizePx = (arrowSizeDp * density).toInt()
 
-        // Create a mutable bitmap
-        val bitmap = Bitmap.createBitmap(arrowSize, arrowSize, Bitmap.Config.ARGB_8888)
+        Log.d("MarkerDebug", "createArrowIcon: arrowSizePx = $arrowSizePx") // Keep the log
+
+        val bitmap = Bitmap.createBitmap(arrowSizePx, arrowSizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.TRANSPARENT) // Make the background transparent
+        canvas.drawColor(Color.TRANSPARENT)
 
-        // Create a Paint object for drawing the arrow
         val paint = Paint().apply {
             this.color = color
             style = Paint.Style.FILL
             isAntiAlias = true
         }
 
-        // Define the arrow shape (a simple triangle) - adjust points as needed
         val path = android.graphics.Path().apply {
-            moveTo(arrowSize / 2f, 0f)           // Top-center
-            lineTo(arrowSize.toFloat(), arrowSize.toFloat()) // Bottom-right
-            lineTo(0f, arrowSize.toFloat())    // Bottom-left
-            close()                          // Connect back to the top
+            moveTo(arrowSizePx / 2f, 0f)
+            lineTo(arrowSizePx.toFloat(), arrowSizePx.toFloat())
+            lineTo(0f, arrowSizePx.toFloat())
+            close()
         }
 
-        // Draw the arrow onto the canvas
         canvas.drawPath(path, paint)
-
         return BitmapDescriptorFactory.fromBitmap(bitmap)
     }
-
-
-
 
 
 
@@ -1437,25 +1435,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             nodes = withContext(Dispatchers.IO) { nodeRepository.getNodes() }
             withContext(Dispatchers.Main) {
                 nodes?.forEach { node -> addMarkerToMap(node) }
-                // Set up listeners *AFTER* map is fully loaded
-                mMap.setOnMapLoadedCallback {
-
-                    // Node click listener.  Use the markerClickListener you already have.
-                    markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
-                        val node = nodesMap[marker]
-                        if (node != null) {
-                            showNodeDetailsDialog(marker)
-                            true
-                        } else {
-                            false
-                        }
+                // Node click listener.  Use the markerClickListener you already have.
+                markerClickListener = GoogleMap.OnMarkerClickListener { marker ->
+                    val node = nodesMap[marker]
+                    if (node != null) {
+                        showNodeDetailsDialog(marker)
+                        true
+                    } else {
+                        false
                     }
-                    mMap.setOnMarkerClickListener(markerClickListener)
+                }
+                mMap.setOnMarkerClickListener(markerClickListener)
 
-                    // Polyline click listener - *CRUCIAL* to set this here.
-                    mMap.setOnPolylineClickListener { polyline ->
-                        showPipeDetailsDialogFromPolyline(polyline)
-                    }
+                // Polyline click listener - *CRUCIAL* to set this here.
+                mMap.setOnPolylineClickListener { polyline ->
+                    showPipeDetailsDialogFromPolyline(polyline)
                 }
             }
 
@@ -1463,13 +1457,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     }
 
+
     private fun removeAllMarkers() {
         for (marker in nodesMap.keys) { // Remove node markers
             marker.remove()
         }
         nodesMap.clear()
 
-        mMap.clear() // Clear *everything*, including polylines
+        //mMap.clear() // Clear *everything*, including polylines  -- REMOVE THIS
 
         for (marker in tempMarkers) { // Remove temp markers (if any)
             marker.remove()
