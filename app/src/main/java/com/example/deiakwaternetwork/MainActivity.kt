@@ -117,10 +117,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     data class PipeData(val pipe: Pipe, val arrowMarkers: MutableList<Marker> = mutableListOf())
     private val polylineAnimators = mutableMapOf<Polyline, ValueAnimator>() // Store animators
 
-    private val ARROW_SPACING_METERS = 50.0 // Adjust this as needed
+    private val ARROW_SPACING_METERS = 15.0 // Adjust this as needed
 
-    private val baseIconSizeDp = 25 // NODE markers size
-    private val baseArrowSizeDp = 10 // ARROW markers size
+    private val baseIconSizeDp = 40 // NODE markers size
+    private val baseArrowSizeDp = 15 // ARROW markers size
     private val visibilityThresholdZoom = 15f // Zoom level for icons to appear
     private val pipeVisibilityThresholdZoom = 15f
     private val fixedIconSizePx: Int by lazy { (baseIconSizeDp * resources.displayMetrics.density).toInt() }
@@ -164,7 +164,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
 
-           // Initialize the chipGroup
+            // Initialize the chipGroup
             chipGroup = findViewById(R.id.filterChipGroup)
             chipGroup.visibility = View.GONE
 
@@ -1036,28 +1036,62 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
 
     private fun startPipeDrawingMode() {
         isDrawingPipe = true
-        pipePoints.clear()  // Clear any previous points
-        tempPipeLine?.remove() // Remove any existing temporary line
+        pipePoints.clear()
+        tempPipeLine?.remove()
         tempPipeLine = null
-        mMap.setOnMarkerClickListener(null) // Remove the default marker click listener
-        clearTempMarkers() // NEW: Clear any existing temporary markers
+        mMap.setOnMarkerClickListener(null)
+        clearTempMarkers()
 
-        Toast.makeText(this, "Tap on the map to add pipe points. Tap 'Create Pipe' when done.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Tap on the map to add pipe points, or tap on a node to connect.", Toast.LENGTH_LONG).show()
 
-        // Set a map click listener to add points
         mMap.setOnMapClickListener { latLng ->
             if (isDrawingPipe) {
-                addPointToPipe(latLng)
+                var closestNode: Node? = null
+                var minDistance = Float.MAX_VALUE
+
+                // --- Node Proximity Check (Improved) ---
+                if (nodes != null && nodes!!.isNotEmpty()) { // Check if nodes is not null and not empty
+                    nodes!!.forEach { node ->  // Safe call here
+                        val nodeLatLng = LatLng(node.location.latitude, node.location.longitude)
+                        val distance = FloatArray(1)
+                        Location.distanceBetween(
+                            latLng.latitude, latLng.longitude,
+                            nodeLatLng.latitude, nodeLatLng.longitude, distance
+                        )
+                        if (distance[0] < minDistance) {
+                            minDistance = distance[0]
+                            closestNode = node
+                        }
+                    }
+                }
+
+                val threshold = 20f
+
+                // --- Decision: Use node location or clicked location ---
+                if (closestNode != null && minDistance <= threshold) {
+                    val nodeLatLng = LatLng(closestNode!!.location.latitude, closestNode!!.location.longitude)
+                    addPointToPipe(nodeLatLng) // Pass LatLng, not Node
+                    Log.d("PipeDrawing", "Adding point at NODE: ${nodeLatLng.latitude}, ${nodeLatLng.longitude}")
+                } else {
+                    addPointToPipe(latLng)  // Directly use latLng
+                    Log.d("PipeDrawing", "Adding point at CLICK: ${latLng.latitude}, ${latLng.longitude}")
+                }
             }
         }
 
-        // --- Modify the FAB ---
         val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
-        fabAddPipe.setImageResource(android.R.drawable.ic_menu_save)  // Change to a "done" icon
+        fabAddPipe.setImageResource(android.R.drawable.ic_menu_save)
         fabAddPipe.setOnClickListener {
-            finishPipeDrawing() // Call a new function to finish drawing
+            finishPipeDrawing()
+        }
+
+        val fabCancelPipe = findViewById<FloatingActionButton>(R.id.fabCancelPipe)
+        fabCancelPipe.visibility = View.VISIBLE
+        fabCancelPipe.setOnClickListener {
+            resetPipeDrawingState()
         }
     }
+
 
 
     private fun finishPipeDrawing() {
@@ -1080,13 +1114,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         }
         mMap.setOnMarkerClickListener(markerClickListener)
 
+        // NEW: Hide the Cancel FAB
+        val fabCancelPipe = findViewById<FloatingActionButton>(R.id.fabCancelPipe)
+        fabCancelPipe.visibility = View.GONE
+
         showPipeCreationDialog() // Show the dialog to enter pipe details
     }
 
     private fun addPointToPipe(latLng: LatLng) {
-        pipePoints.add(latLng)
-        updateTempPolyline() // Update the visual representation
-        addTempMarker(latLng) // Add a temporary marker
+        pipePoints.add(latLng)  // *** ADD THE POINT FIRST ***
+        Log.d("PipeDrawing", "Point added: ${latLng.latitude}, ${latLng.longitude}") // Log for debugging
+
+        updateTempPolyline() // Update polyline *AFTER* adding the point.
+        addTempMarker(latLng) // Add a temporary marker at the point
     }
 
 
@@ -1101,6 +1141,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                     .width(5f)
                     .clickable(false) // Temporary line not clickable
             )
+            Log.d("PipeDrawing", "Temp polyline updated with ${pipePoints.size} points.") // Log for debugging
+        } else {
+            Log.d("PipeDrawing", "Not enough points to draw temp polyline (${pipePoints.size} points).")
         }
     }
 
@@ -1109,9 +1152,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         pipePoints.clear()
         tempPipeLine?.remove()
         tempPipeLine = null
-        clearTempMarkers() // NEW: Clear temporary markers
+        clearTempMarkers()
         mMap.setOnMapClickListener(null) // Remove pipe drawing listener
-        mMap.setOnMarkerClickListener(markerClickListener) // Restore node marker listener
+
+        // Restore the original node marker listener
+        mMap.setOnMarkerClickListener(markerClickListener)  // CHANGE: Restore *saved* listener
+
+
+        // Restore the "Add Pipe" button
+        val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
+        fabAddPipe.setImageResource(android.R.drawable.ic_menu_add) // Restore original icon
+        fabAddPipe.setOnClickListener {
+            if (authRepository.getUserRole() == "admin") {
+                startPipeDrawingMode() // Restart drawing mode on click
+            }
+        }
+
+        // NEW: Hide the Cancel FAB
+        val fabCancelPipe = findViewById<FloatingActionButton>(R.id.fabCancelPipe)
+        fabCancelPipe.visibility = View.GONE
     }
 
     private fun addTempMarker(latLng: LatLng) {

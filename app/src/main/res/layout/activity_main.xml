@@ -33,8 +33,21 @@
         android:layout_margin="16dp"
         android:src="@android:drawable/ic_menu_add"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/fabAddNode"  android:visibility="gone"
+        app:layout_constraintEnd_toStartOf="@+id/fabAddNode"
+        android:visibility="gone"
         android:contentDescription="Add Pipe" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabCancelPipe"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:contentDescription="Cancel Pipe Creation"/>
 
 
     <LinearLayout
