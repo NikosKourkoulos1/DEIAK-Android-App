@@ -120,7 +120,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     private val ARROW_SPACING_METERS = 15.0 // Adjust this as needed
 
     private val baseIconSizeDp = 40 // NODE markers size
-    private val baseArrowSizeDp = 15 // ARROW markers size
+    private val baseArrowSizeDp = 10 // ARROW markers size
     private val visibilityThresholdZoom = 15f // Zoom level for icons to appear
     private val pipeVisibilityThresholdZoom = 15f
     private val fixedIconSizePx: Int by lazy { (baseIconSizeDp * resources.displayMetrics.density).toInt() }
