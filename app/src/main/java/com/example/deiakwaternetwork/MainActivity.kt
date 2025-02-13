@@ -72,6 +72,10 @@ import android.graphics.drawable.VectorDrawable
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import android.content.Context
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
 
 
@@ -126,8 +130,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     private val fixedIconSizePx: Int by lazy { (baseIconSizeDp * resources.displayMetrics.density).toInt() }
     private val fixedArrowSizePx: Int by lazy { (baseArrowSizeDp * resources.displayMetrics.density).toInt() }
 
+    private lateinit var crosshairImageView: ImageView // Declare at the class level
 
-
+    private var isAddingNode = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         apiService = RetrofitClient.getApiService(this)
@@ -325,6 +330,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
 
+        addCrosshair()
         // Set initial map position and constraints
         val corfuBounds = LatLngBounds(
             LatLng(39.45, 19.7), // Southwest corner of Corfu Island
@@ -334,11 +340,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Set default map type
 
         // Prevent the camera from moving outside of Corfu
+        //mMap.setLatLngBoundsForCameraTarget(corfuBounds) // REPLACING OnCameraMoveListener with setLatLngBoundsForCameraTarget
         mMap.setOnCameraMoveListener {
             if (!corfuBounds.contains(mMap.cameraPosition.target)) {
                 mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
             }
         }
+
 
         // Set up location services.  Request permission if needed.
         mMap.setOnMyLocationButtonClickListener {
@@ -424,11 +432,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
             fabAddPipe.visibility = View.VISIBLE
         }
 
+
         fabAddNode.setOnClickListener {
-            Toast.makeText(this, "Click on the map to add a node", Toast.LENGTH_SHORT).show()
-            mMap.setOnMapClickListener { latLng -> // Set a *temporary* listener
-                showNodeCreationDialog(latLng)
-                mMap.setOnMapClickListener(null) // *Remove* the listener after one click
+            if (!isAddingNode) {
+                // First click: Enter node adding mode
+                isAddingNode = true
+                showCrosshair()
+                fabAddNode.setImageResource(android.R.drawable.ic_menu_save) // Change icon to a "confirm" icon
+                Toast.makeText(this, "Position the crosshair and tap the button again to add a node.", Toast.LENGTH_LONG).show()
+
+            } else {
+                // Second click: Capture coordinates and show dialog
+                val centerLatLng = mMap.cameraPosition.target
+                showNodeCreationDialog(centerLatLng)
+                hideCrosshair()
+                isAddingNode = false // Reset the state
+                fabAddNode.setImageResource(android.R.drawable.ic_menu_add) // Change icon back to "add"
             }
         }
 
@@ -437,6 +456,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 startPipeDrawingMode()
             }
         }
+    }
+
+
+    private fun addCrosshair() {
+        crosshairImageView = ImageView(this)
+        crosshairImageView.setImageResource(R.drawable.ic_crosshair) // Replace with your crosshair image
+
+        val params = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER // Center it in the FrameLayout
+        )
+        crosshairImageView.layoutParams = params
+
+        // Find the FrameLayout (the map's parent) and add the ImageView
+        val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment
+        val mapView = mapFragment.view as? ViewGroup // Get the map's view (usually a FrameLayout)
+
+        mapView?.let{
+            it.addView(crosshairImageView)
+        }
+
+        // Initially hide the crosshair
+        crosshairImageView.visibility = View.GONE
+    }
+
+    private fun showCrosshair(){
+        crosshairImageView.visibility = View.VISIBLE
+    }
+
+    private fun hideCrosshair(){
+        crosshairImageView.visibility = View.GONE
     }
     override fun onCameraIdle() {
         updateMarkerIcons()
@@ -696,7 +747,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 .position(latLng)
                 .title(node.name)
                 .icon(markerIcon) //  SET THE ICON HERE
-                .anchor(0.5f, 1.0f)
+                .anchor(0.5f, 0.5f) // <---  CENTER THE MARKER.  THIS IS KEY!
         )
         marker?.let {
             nodesMap[it] = node
@@ -1035,47 +1086,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     // --- Pipe Drawing Functions ---
 
     private fun startPipeDrawingMode() {
-        isDrawingPipe = true
+        isDrawingPipe = true // Set immediately
         pipePoints.clear()
         tempPipeLine?.remove()
         tempPipeLine = null
-        mMap.setOnMarkerClickListener(null)
+        mMap.setOnMarkerClickListener(null) // Keep this to prevent node clicks
         clearTempMarkers()
+        showCrosshair() // Show Crosshair
 
-        Toast.makeText(this, "Tap on the map to add pipe points, or tap on a node to connect.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Tap on the map to add pipe points.", Toast.LENGTH_LONG).show()
 
         mMap.setOnMapClickListener { latLng ->
             if (isDrawingPipe) {
-                var closestNode: Node? = null
-                var minDistance = Float.MAX_VALUE
-
-                // --- Node Proximity Check (Improved) ---
-                if (nodes != null && nodes!!.isNotEmpty()) { // Check if nodes is not null and not empty
-                    nodes!!.forEach { node ->  // Safe call here
-                        val nodeLatLng = LatLng(node.location.latitude, node.location.longitude)
-                        val distance = FloatArray(1)
-                        Location.distanceBetween(
-                            latLng.latitude, latLng.longitude,
-                            nodeLatLng.latitude, nodeLatLng.longitude, distance
-                        )
-                        if (distance[0] < minDistance) {
-                            minDistance = distance[0]
-                            closestNode = node
-                        }
-                    }
-                }
-
-                val threshold = 20f
-
-                // --- Decision: Use node location or clicked location ---
-                if (closestNode != null && minDistance <= threshold) {
-                    val nodeLatLng = LatLng(closestNode!!.location.latitude, closestNode!!.location.longitude)
-                    addPointToPipe(nodeLatLng) // Pass LatLng, not Node
-                    Log.d("PipeDrawing", "Adding point at NODE: ${nodeLatLng.latitude}, ${nodeLatLng.longitude}")
-                } else {
-                    addPointToPipe(latLng)  // Directly use latLng
-                    Log.d("PipeDrawing", "Adding point at CLICK: ${latLng.latitude}, ${latLng.longitude}")
-                }
+                val centerLatLng = mMap.cameraPosition.target // Use map center
+                addPointToPipe(centerLatLng) // Directly add the clicked point - NO SNAPPING
+                Log.d("PipeDrawing", "Adding point at CLICK: ${centerLatLng.latitude}, ${centerLatLng.longitude}")
             }
         }
 
@@ -1094,15 +1119,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
 
 
 
+
     private fun finishPipeDrawing() {
+        isDrawingPipe = false // Set immediately!
+        mMap.setOnMapClickListener(null) // Remove the map click listener
+
         if (pipePoints.size < 2) {
             Toast.makeText(this, "You need at least two points to create a pipe.", Toast.LENGTH_SHORT).show()
             resetPipeDrawingState() // Go back to the initial state
             return
         }
 
-        isDrawingPipe = false // Exit drawing mode
-        mMap.setOnMapClickListener(null) // Remove the map click listener
+        // *** IMPORTANT: Create a copy of pipePoints ***
+        val pipePointsCopy = pipePoints.toList()
 
         // Restore the "Add Pipe" button
         val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
@@ -1114,21 +1143,29 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         }
         mMap.setOnMarkerClickListener(markerClickListener)
 
-        // NEW: Hide the Cancel FAB
+
         val fabCancelPipe = findViewById<FloatingActionButton>(R.id.fabCancelPipe)
         fabCancelPipe.visibility = View.GONE
-
-        showPipeCreationDialog() // Show the dialog to enter pipe details
+        hideCrosshair() // HIDE CROSSHAIR
+        showPipeCreationDialog(pipePointsCopy) // Pass the *copy*
     }
 
     private fun addPointToPipe(latLng: LatLng) {
-        pipePoints.add(latLng)  // *** ADD THE POINT FIRST ***
-        Log.d("PipeDrawing", "Point added: ${latLng.latitude}, ${latLng.longitude}") // Log for debugging
-
-        updateTempPolyline() // Update polyline *AFTER* adding the point.
-        addTempMarker(latLng) // Add a temporary marker at the point
+        pipePoints.add(latLng)  // Add the point.
+        updateTempPolyline()   // THEN update the polyline.
+        addTempMarker(latLng)  // THEN add the marker.  Strict order!
     }
 
+
+    private fun addTempMarker(latLng: LatLng) {
+        val marker =  mMap.addMarker(
+            MarkerOptions()
+                .position(latLng)
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)) // Use a distinct color
+                .anchor(0.5f, 0.5f) // Center the marker  <- IMPORTANT!
+        )
+        marker?.let{tempMarkers.add(it)} // Add to the list , null check
+    }
 
     private fun updateTempPolyline() {
         tempPipeLine?.remove() // Remove the previous line
@@ -1148,39 +1185,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     }
 
     private fun resetPipeDrawingState() {
-        isDrawingPipe = false
-        pipePoints.clear()
-        tempPipeLine?.remove()
-        tempPipeLine = null
-        clearTempMarkers()
+        isDrawingPipe = false // Set flag first
+        tempPipeLine?.remove() // Remove polyline
+        pipePoints.clear() // Clear pipePoints
+        clearTempMarkers()// THEN clear markers.
         mMap.setOnMapClickListener(null) // Remove pipe drawing listener
-
-        // Restore the original node marker listener
-        mMap.setOnMarkerClickListener(markerClickListener)  // CHANGE: Restore *saved* listener
-
-
-        // Restore the "Add Pipe" button
+        mMap.setOnMarkerClickListener(markerClickListener)  // Restore saved listener
         val fabAddPipe = findViewById<FloatingActionButton>(R.id.fabAddPipe)
-        fabAddPipe.setImageResource(android.R.drawable.ic_menu_add) // Restore original icon
+        fabAddPipe.setImageResource(android.R.drawable.ic_menu_add)
         fabAddPipe.setOnClickListener {
             if (authRepository.getUserRole() == "admin") {
-                startPipeDrawingMode() // Restart drawing mode on click
+                startPipeDrawingMode()
             }
         }
-
-        // NEW: Hide the Cancel FAB
         val fabCancelPipe = findViewById<FloatingActionButton>(R.id.fabCancelPipe)
         fabCancelPipe.visibility = View.GONE
-    }
-
-    private fun addTempMarker(latLng: LatLng) {
-        val marker =  mMap.addMarker(
-            MarkerOptions()
-                .position(latLng)
-                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)) // Use a distinct color
-                .anchor(0.5f, 0.5f) // Center the marker
-        )
-        marker?.let{tempMarkers.add(it)} // Add to the list , null check
+        hideCrosshair() // HIDE CROSSHAIR
     }
 
     private fun clearTempMarkers() {
@@ -1190,8 +1210,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         tempMarkers.clear()
     }
 
-    private fun showPipeCreationDialog() {
+    private fun showPipeCreationDialog(pipePointsCopy: List<LatLng>) {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pipe_creation, null)
+
 
         val etStatus = dialogView.findViewById<Spinner>(R.id.spinnerPipeStatus)
         //val etFlow = dialogView.findViewById<EditText>(R.id.etPipeFlow) // Remove - No longer needed
@@ -1216,7 +1237,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setTitle("Create New Pipe")
-            .setPositiveButton("Create", null) // Set to null initially
+            .setPositiveButton("Create", null)
             .setNegativeButton("Cancel") { _, _ ->
                 resetPipeDrawingState() // Reset state if canceled
             }
@@ -1226,36 +1247,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
             val createButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             createButton.setOnClickListener {
                 val status = etStatus.selectedItem.toString()
-                //val flow = etFlow.text.toString().toIntOrNull() ?: 0 // REMOVE - We get flow from the spinner
-                val length = calculatePipeLength(pipePoints)
+                val length = calculatePipeLength(pipePointsCopy) // Use the copy!
                 val diameter = etDiameter.text.toString().toIntOrNull()
                 val material = etMaterial.text.toString().trim()
-                val flow = spinnerFlowDirection.selectedItemPosition // Get selected index (0 or 1)
-
+                val flow = spinnerFlowDirection.selectedItemPosition
 
                 if (status.isEmpty()) {
                     Toast.makeText(this, "Status is required", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
 
-                //Added Validation for at least two points
-                if(pipePoints.size < 2) {
+                if(pipePointsCopy.size < 2) { //check size of the copy
                     Toast.makeText(this, "You need to select at least two points for a pipe", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
 
                 val newPipe = Pipe(
-                    _id = null, // Let the backend generate
-                    coordinates = pipePoints.map { com.example.deiakwaternetwork.model.Location(it.latitude, it.longitude) }, // Convert LatLng to Location
+                    _id = null,
+                    coordinates = pipePointsCopy.map { com.example.deiakwaternetwork.model.Location(it.latitude, it.longitude) }, // Use the *copy*
                     status = status,
-                    flow = flow,  // Use the selected direction (0 or 1)
+                    flow = flow,
                     length = length,
                     diameter = diameter,
                     material = material,
-                    createdAt = null, // Let backend handle
-                    updatedAt = null  // Let backend handle
+                    createdAt = null,
+                    updatedAt = null
                 )
-                createPipeAndAddToMap(newPipe)
+                createPipeAndAddToMap(newPipe) //This function remains the same
                 dialog.dismiss()
                 resetPipeDrawingState() // Reset after creation
             }
