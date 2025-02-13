@@ -40,4 +40,11 @@
         android:hint="Description"
         android:inputType="text" />
 
+    <Button
+        android:id="@+id/btnMoveNode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Move Node"
+        android:layout_marginTop="16dp"/>
+
 </LinearLayout>

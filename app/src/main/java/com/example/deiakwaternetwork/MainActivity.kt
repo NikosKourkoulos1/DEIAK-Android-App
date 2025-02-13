@@ -130,7 +130,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
     private val fixedIconSizePx: Int by lazy { (baseIconSizeDp * resources.displayMetrics.density).toInt() }
     private val fixedArrowSizePx: Int by lazy { (baseArrowSizeDp * resources.displayMetrics.density).toInt() }
 
+    private var isMovingNode = false // Add at the class level
+    private var nodeToMoveId: String? = null  // Add at class level, to store ID
+    private var nodeToMoveMarker : Marker? = null // Add at class level, to store the marker
+
     private lateinit var crosshairImageView: ImageView // Declare at the class level
+
+
+    private val initialIconSizeDp = 7 // Smaller initial size, in dp
+    private val maxIconSizeDp = 40    // Maximum size, in dp
+    private val initialIconSizePx: Int by lazy { (initialIconSizeDp * resources.displayMetrics.density).toInt() }
+    private val maxIconSizePx: Int by lazy { (maxIconSizeDp * resources.displayMetrics.density).toInt() }
+    private val zoomScaleFactor = 3.0f  // Controls how much size changes per zoom level.  Adjust this!
 
     private var isAddingNode = false
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -434,20 +445,36 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
 
 
         fabAddNode.setOnClickListener {
-            if (!isAddingNode) {
+            if (!isAddingNode && !isMovingNode) {
                 // First click: Enter node adding mode
                 isAddingNode = true
                 showCrosshair()
                 fabAddNode.setImageResource(android.R.drawable.ic_menu_save) // Change icon to a "confirm" icon
                 Toast.makeText(this, "Position the crosshair and tap the button again to add a node.", Toast.LENGTH_LONG).show()
 
-            } else {
-                // Second click: Capture coordinates and show dialog
+            } else if (isAddingNode) {
+                // Second click (adding a new node): Capture coordinates and show dialog
                 val centerLatLng = mMap.cameraPosition.target
                 showNodeCreationDialog(centerLatLng)
                 hideCrosshair()
                 isAddingNode = false // Reset the state
                 fabAddNode.setImageResource(android.R.drawable.ic_menu_add) // Change icon back to "add"
+
+            } else if (isMovingNode) {
+                // Second click (moving a node): Capture coordinates and update node
+                val newLatLng = mMap.cameraPosition.target
+                nodeToMoveId?.let { nodeId -> // Use safe call and let
+                    // Create a copy of the node with the new location.
+                    val updatedNode = nodesMap[nodeToMoveMarker]?.copy(location = com.example.deiakwaternetwork.model.Location(newLatLng.latitude, newLatLng.longitude))
+                    if (updatedNode != null) {
+                        updateNodeInBackend(nodeId, updatedNode, nodeToMoveMarker!!) // Pass the OLD marker.
+                    }
+                }
+                hideCrosshair()
+                isMovingNode = false // Reset state
+                nodeToMoveId = null // Clear the stored ID
+                nodeToMoveMarker = null
+                fabAddNode.setImageResource(android.R.drawable.ic_menu_add) // Change icon back
             }
         }
 
@@ -490,16 +517,42 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         crosshairImageView.visibility = View.GONE
     }
     override fun onCameraIdle() {
-        updateMarkerIcons()
+        val currentZoom = mMap.cameraPosition.zoom
+        val nodeMarkersVisible = currentZoom >= visibilityThresholdZoom
+
+        // Update Node Markers
+        nodesMap.forEach { (marker, node) ->
+            if (nodeMarkersVisible && visibleNodeTypes.contains(node.type)) {
+                marker.isVisible = true
+                val iconResource = getMarkerIconResource(node.type) // Get resource ID
+                val scaledIcon = getScaledMarkerIcon(iconResource, node.type) // Get scaled icon
+                marker.setIcon(scaledIcon) // Update the icon!
+            } else {
+                marker.isVisible = false
+            }
+        }
+
+        // Manage arrow and polyline visibility - KEEP AS IS, but make sure it's AFTER node marker update
+        if (currentZoom >= visibilityThresholdZoom) {
+            pipesMap.forEach { (polyline, pipeData) ->
+                addArrowMarkers(polyline, pipeData.pipe.flow) // Re-add arrow markers
+                polyline.isVisible = visibleNodeTypes.contains("Pipes") && currentZoom >= pipeVisibilityThresholdZoom
+            }
+        } else {
+            pipesMap.forEach { (polyline, pipeData) ->
+                pipeData.arrowMarkers.forEach { it.isVisible = false }
+                polyline.isVisible = visibleNodeTypes.contains("Pipes") && currentZoom >= pipeVisibilityThresholdZoom
+            }
+        }
     }
 
     private fun updateMarkerIcons() {
         val currentZoom = mMap.cameraPosition.zoom
 
         val nodeMarkersVisible = currentZoom >= visibilityThresholdZoom
-        nodesMap.keys.forEach { it.isVisible = nodeMarkersVisible }
+        //nodesMap.keys.forEach { it.isVisible = nodeMarkersVisible } //KEEP VISIBILITY
 
-        // Manage arrow and polyline visibility
+        // Manage arrow and polyline visibility - KEEP AS IS
         if (currentZoom >= visibilityThresholdZoom) {
             pipesMap.forEach { (polyline, pipeData) ->
                 addArrowMarkers(polyline, pipeData.pipe.flow) // Re-add arrow markers
@@ -514,6 +567,29 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 polyline.isVisible = visibleNodeTypes.contains("Pipes") && currentZoom >= pipeVisibilityThresholdZoom // AND CHECK ZOOM
 
             }
+        }
+        //UPDATE MARKERS WITH THE CORRECT SIZE AND VISIBILITY
+        nodesMap.forEach { (marker, node) ->
+            if(nodeMarkersVisible){
+                marker.isVisible = visibleNodeTypes.contains(node.type)
+                //UPDATE THE ICON OF THE MARKER
+                marker.setIcon(getScaledMarkerIcon(getMarkerIconResource(node.type), node.type))
+            }
+            else{
+                marker.isVisible = false
+            }
+        }
+    }
+
+    private fun getMarkerIconResource(nodeType: String): Int {
+        return when (nodeType) {
+            "Κλειδί" -> R.drawable.kleidi_icon
+            "Πυροσβεστικός Κρουνός" -> R.drawable.krounos_icon
+            "Ταφ" -> R.drawable.taf_icon
+            "Γωνία" -> R.drawable.gonia_icon
+            "Κολεκτέρ" -> R.drawable.kolekter_icon
+            "Παροχή" -> R.drawable.paroxi_icon
+            else -> R.drawable.ic_crosshair // Default icon resource, if node type is not found
         }
     }
 
@@ -746,14 +822,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
             MarkerOptions()
                 .position(latLng)
                 .title(node.name)
-                .icon(markerIcon) //  SET THE ICON HERE
-                .anchor(0.5f, 0.5f) // <---  CENTER THE MARKER.  THIS IS KEY!
+                .icon(markerIcon)
+                .anchor(0.5f, 0.5f)
         )
         marker?.let {
             nodesMap[it] = node
         }
     }
 
+    private fun getScaledMarkerIcon(iconResource: Int, nodeType: String): BitmapDescriptor {
+        val currentZoom = mMap.cameraPosition.zoom
+        val zoomDifference = (currentZoom - visibilityThresholdZoom).coerceAtLeast(0f) // Ensure non-negative
+        val scaleFactor = (1 + zoomDifference * zoomScaleFactor).coerceIn(1f, 5f)    // Example: Limit scaling to 5x
+
+        val scaledWidth = (initialIconSizePx * scaleFactor).toInt().coerceAtMost(maxIconSizePx)
+        val scaledHeight = (initialIconSizePx * scaleFactor).toInt().coerceAtMost(maxIconSizePx)
+
+        // Now, use createBitmapDescriptor with the *scaled* dimensions
+        return createBitmapDescriptor(iconResource, scaledWidth, scaledHeight)
+    }
     // Function to show a dialog when location permission is denied
     private fun showLocationPermissionDeniedDialog() {
         AlertDialog.Builder(this)
@@ -897,7 +984,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         val etNodeCapacity = dialogView.findViewById<EditText>(R.id.etNodeCapacity)
         val spinnerNodeStatus = dialogView.findViewById<Spinner>(R.id.spinnerNodeStatus)
         val etNodeDescription = dialogView.findViewById<EditText>(R.id.etNodeDescription)
+        val btnMoveNode = dialogView.findViewById<Button>(R.id.btnMoveNode) // Get the Move button
 
+        // ... (Existing code to set up spinners and initial values) ...
         val nodeTypes = arrayOf("Κλειδί", "Πυροσβεστικός Κρουνός", "Ταφ", "Γωνία", "Κολεκτέρ", "Παροχή")
         val typeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, nodeTypes)
         typeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -917,13 +1006,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setTitle("Edit Node")
-            .setPositiveButton("Save", null)
+            .setPositiveButton("Save", null) // Set to null initially
             .setNegativeButton("Cancel", null)
             .create()
 
         dialog.setOnShowListener {
             val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             saveButton.setOnClickListener {
+                // ... (Existing code for saving node details - validation and updateNodeInBackend call) ...
                 val updatedName = etNodeName.text.toString().trim()
                 val updatedType = spinnerNodeType.selectedItem.toString()
                 val updatedCapacity = etNodeCapacity.text.toString().toIntOrNull()
@@ -949,6 +1039,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 updateNodeInBackend(node._id!!, updatedNode, marker) // Now we are passing the _id
                 dialog.dismiss()
             }
+
+            btnMoveNode.setOnClickListener {
+                dialog.dismiss() // Dismiss the dialog
+                isMovingNode = true // Set the flag
+                nodeToMoveId = node._id // Store the ID
+                nodeToMoveMarker = marker
+                showCrosshair()
+
+                // Change FAB behavior (similar to adding a new node)
+                val fabAddNode = findViewById<FloatingActionButton>(R.id.fabAddNode)
+                fabAddNode.setImageResource(android.R.drawable.ic_menu_save) // Confirm icon
+                Toast.makeText(this, "Position the crosshair and tap the button again to move the node.", Toast.LENGTH_LONG).show()
+            }
         }
 
         dialog.show()
@@ -963,20 +1066,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
                 }
 
                 if (response.isSuccessful) {
-                    // Remove the old marker
-                    marker.remove()
-
-                    // Add a new marker with updated details
-                    val newMarker = mMap.addMarker(
-                        MarkerOptions()
-                            .position(LatLng(updatedNode.location.latitude, updatedNode.location.longitude))
-                            .title(updatedNode.name)
-                            .icon(getMarkerIconFromType(updatedNode.type))
-                    )
-
-                    // Update nodesMap with the new marker and updated node
-                    nodesMap.remove(marker) // Remove the old marker-node association
-                    newMarker?.let { nodesMap[it] = updatedNode } // Add the new marker-node association
+                    marker.position = LatLng(updatedNode.location.latitude, updatedNode.location.longitude)
+                    // Update nodesMap
+                    nodesMap[marker] = updatedNode  // Update the existing entry!  No remove/add.
 
                     mMap.setOnMarkerClickListener { clickedMarker ->
                         // Find the node associated with the clicked marker
