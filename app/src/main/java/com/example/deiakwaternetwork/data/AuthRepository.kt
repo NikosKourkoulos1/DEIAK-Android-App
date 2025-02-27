@@ -1,6 +1,7 @@
 package com.example.deiakwaternetwork.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
@@ -9,14 +10,48 @@ import com.example.deiakwaternetwork.model.LoginResponse
 import com.example.deiakwaternetwork.model.RegisterRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import android.content.SharedPreferences
-
-
 
 class AuthRepository(private val context: Context) {
     private val apiService = RetrofitClient.getApiService(context)
-    private val sharedPrefs = createEncryptedSharedPrefs(context)
+    private lateinit var sharedPrefs: SharedPreferences
 
+    init {
+        initializeSharedPrefs()
+    }
+
+    // --- Initialization with Error Handling ---
+    private fun initializeSharedPrefs() {
+        try {
+            sharedPrefs = createEncryptedSharedPrefs(context)
+            Log.d("AuthRepository", "EncryptedSharedPreferences initialized successfully")
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Failed to initialize EncryptedSharedPreferences: ${e.message}", e)
+            // Clear the prefs file and retry
+            context.getSharedPreferences("deiak_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+            try {
+                sharedPrefs = createEncryptedSharedPrefs(context)
+                Log.d("AuthRepository", "Successfully reinitialized EncryptedSharedPreferences after clearing")
+            } catch (e2: Exception) {
+                Log.e("AuthRepository", "Failed to reinitialize EncryptedSharedPreferences: ${e2.message}", e2)
+                throw RuntimeException("Cannot initialize encrypted storage", e2)
+            }
+        }
+    }
+
+    // --- Helper Function for EncryptedSharedPreferences ---
+    private fun createEncryptedSharedPrefs(context: Context): SharedPreferences {
+        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        Log.d("AuthRepository", "Master key alias: $masterKeyAlias")
+        return EncryptedSharedPreferences.create(
+            "deiak_prefs",
+            masterKeyAlias,
+            context,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    // --- Login Functionality ---
     suspend fun login(loginRequest: LoginRequest): LoginResponse? {
         return withContext(Dispatchers.IO) {
             try {
@@ -34,36 +69,33 @@ class AuthRepository(private val context: Context) {
                     null
                 }
             } catch (e: Exception) {
-                Log.e("AuthRepository", "Login error: ${e.message}")
+                Log.e("AuthRepository", "Login error: ${e.message}", e)
                 null
             }
         }
     }
 
-
+    // --- Register Functionality ---
     suspend fun register(registerRequest: RegisterRequest): Boolean {
         return withContext(Dispatchers.IO) {
             try {
                 val response = apiService.register(registerRequest)
-
-                // Log the response code and message
                 Log.d("AuthRepository", "Registration response: ${response.code()} ${response.message()}")
 
-                // If the response is not successful, log the error body
                 if (!response.isSuccessful) {
                     val errorBody = response.errorBody()?.string()
                     Log.e("AuthRepository", "Registration error body: $errorBody")
                 }
 
-                response.isSuccessful // Return true if successful, false otherwise
+                response.isSuccessful
             } catch (e: Exception) {
-                Log.e("AuthRepository", "Registration error: ${e.message}")
+                Log.e("AuthRepository", "Registration error: ${e.message}", e)
                 false
             }
         }
     }
-    // --- Token Handling ---
 
+    // --- Token Handling ---
     private fun storeToken(token: String) {
         sharedPrefs.edit().putString("auth_token", token).apply()
     }
@@ -71,28 +103,6 @@ class AuthRepository(private val context: Context) {
     fun getToken(): String? {
         return sharedPrefs.getString("auth_token", null)
     }
-
-    // --- User Role Handling ---
-
-    private fun storeUserRole(role: String) {
-        sharedPrefs.edit().putString("user_role", role).apply()
-    }
-
-    fun getUserRole(): String? {
-        return sharedPrefs.getString("user_role", null)
-    }
-
-    fun isLoggedIn(): Boolean {
-        return getToken() != null
-    }
-
-    fun logout() {
-        sharedPrefs.edit().clear().apply() // Clear all stored data
-    }
-
-    // --- Helper Function for EncryptedSharedPreferences ---
-
-
 
     private fun storeRefreshToken(refreshToken: String) {
         sharedPrefs.edit().putString("refresh_token", refreshToken).apply()
@@ -102,16 +112,21 @@ class AuthRepository(private val context: Context) {
         return sharedPrefs.getString("refresh_token", null)
     }
 
-    // --- Helper Function for EncryptedSharedPreferences ---
+    // --- User Role Handling ---
+    private fun storeUserRole(role: String) {
+        sharedPrefs.edit().putString("user_role", role).apply()
+    }
 
-    private fun createEncryptedSharedPrefs(context: Context): SharedPreferences {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-        return EncryptedSharedPreferences.create(
-            "deiak_prefs",
-            masterKeyAlias,
-            context,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+    fun getUserRole(): String? {
+        return sharedPrefs.getString("user_role", null)
+    }
+
+    // --- Utility Functions ---
+    fun isLoggedIn(): Boolean {
+        return getToken() != null
+    }
+
+    fun logout() {
+        sharedPrefs.edit().clear().apply() // Clear all stored data
     }
 }
