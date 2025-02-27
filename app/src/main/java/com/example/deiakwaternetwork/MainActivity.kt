@@ -152,19 +152,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
         authRepository = AuthRepository(this) // Initialize authRepository
 
         userRepository = UserRepository(this)
-        userRepository = UserRepository(this)
+        // Remove the redundant line: userRepository = UserRepository(this)
 
         nodeRepository = NodeRepository(this)
-
         pipeRepository = PipeRepository(this)
 
         // Check if the user is logged in
         if (authRepository.isLoggedIn()) {
             // User is logged in, proceed with MainActivity setup
-            supportActionBar?.apply {
-                displayOptions = androidx.appcompat.app.ActionBar.DISPLAY_SHOW_CUSTOM
-                setCustomView(R.layout.logo_bar)
-            }
+            val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
+            setSupportActionBar(toolbar)
+
+            // Hide the default title since we have a custom title in logo_bar.xml
+            supportActionBar?.setDisplayShowTitleEnabled(false)
 
             val mapFragment = supportFragmentManager
                 .findFragmentById(R.id.map) as SupportMapFragment
@@ -192,9 +192,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
             filterTextView.setOnClickListener {
                 toggleChipGroupVisibility()
             }
-
-
-
         } else {
             // User is not logged in, redirect to LoginActivity
             startActivity(Intent(this, LoginActivity::class.java))
@@ -348,7 +345,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
             LatLng(39.8, 20.1)  // Northeast corner of Corfu Island
         )
         mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(corfuBounds, 0))
-        mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Set default map type
+        mMap.mapType = GoogleMap.MAP_TYPE_TERRAIN // Set default map type
 
         // Prevent the camera from moving outside of Corfu
         //mMap.setLatLngBoundsForCameraTarget(corfuBounds) // REPLACING OnCameraMoveListener with setLatLngBoundsForCameraTarget
@@ -372,24 +369,23 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnCamera
 
         // --- Map Type Spinner --- (Keep this as it is)
         val mapTypeSpinner = findViewById<Spinner>(R.id.mapTypeSpinner)
-        val mapTypes = arrayOf("Προεπιλογή", "Δορυφόρος", "Έδαφος", "Υβριδικό")
+        val mapTypes = arrayOf("Έδαφος", "Δορυφόρος", "Υβριδικό")
         val mapTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mapTypes)
         mapTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         mapTypeSpinner.adapter = mapTypeAdapter
         mapTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
                 val selectedMapType = when (position) {
-                    0 -> GoogleMap.MAP_TYPE_NORMAL
+                    0 -> GoogleMap.MAP_TYPE_TERRAIN
                     1 -> GoogleMap.MAP_TYPE_SATELLITE
-                    2 -> GoogleMap.MAP_TYPE_TERRAIN
-                    3 -> GoogleMap.MAP_TYPE_HYBRID
-                    else -> GoogleMap.MAP_TYPE_NORMAL
+                    2 -> GoogleMap.MAP_TYPE_NORMAL
+                    else -> GoogleMap.MAP_TYPE_TERRAIN
                 }
                 mMap.mapType = selectedMapType
             }
 
             override fun onNothingSelected(parent: AdapterView<*>) {
-                mMap.mapType = GoogleMap.MAP_TYPE_NORMAL // Default
+                mMap.mapType = GoogleMap.MAP_TYPE_TERRAIN // Default
                 mapTypeSpinner.setSelection(0) // Select "Normal" in the spinner
             }
         }

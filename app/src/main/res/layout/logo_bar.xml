@@ -4,21 +4,34 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="?attr/actionBarSize"
-    android:background="?attr/colorPrimary">
+    android:background="?attr/colorPrimary"
+    android:padding="4dp"
+    app:contentInsetStart="0dp"
+    app:contentInsetEnd="0dp">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="DEIAK Water Network"
-        android:textColor="@android:color/white"
-        android:textSize="20sp" />
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
 
-    <ImageView
-        android:layout_width="45dp"
-        android:layout_height="45dp"
-        android:layout_gravity="end"
-        android:layout_marginEnd="16dp"
-        android:src="@drawable/logo"
-        android:contentDescription="@string/logo_description" />
+<ImageView
+    android:layout_width="45dp"
+    android:layout_height="45dp"
+    android:layout_gravity="start|center_vertical"
+    android:src="@drawable/logo"
+    android:contentDescription="@string/logo_description" />
 
-</androidx.appcompat.widget.Toolbar>
+<TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Deiak Water Network"
+    android:textColor="@android:color/white"
+    android:textSize="18sp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:ellipsize="none"
+    android:maxLines="1" />
+
+</LinearLayout>
+    </androidx.appcompat.widget.Toolbar>
