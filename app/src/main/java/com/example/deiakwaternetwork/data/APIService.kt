@@ -1,7 +1,7 @@
 
 package com.example.deiakwaternetwork.data
 
-import com.example.deiakwaternetwork.model.* // Import your data classes
+import com.example.deiakwaternetwork.model.*
 import com.example.deiakwaternetwork.model.RegisterRequest
 import retrofit2.Response
 import retrofit2.http.*
@@ -55,8 +55,8 @@ interface APIService {
     @GET("api/user/users")
     suspend fun getAllUsers(): Response<List<User>>
 
-    //Pipes
-    @GET("api/network/pipes") //Corrected the URLs.
+    // --- Pipes ---
+    @GET("api/network/pipes")
     suspend fun getPipes(): Response<List<Pipe>>
 
     @POST("api/network/pipe")

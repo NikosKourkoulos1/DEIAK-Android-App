@@ -26,23 +26,6 @@ class UserRepository(private val context: Context) {
         }
     }
 
-    suspend fun updateUser(userId: String, user: User): User? {
-        return withContext(Dispatchers.IO) {
-            try {
-                val response = apiService.updateUser(userId, user)
-                if (response.isSuccessful) {
-                    response.body()
-                } else {
-                    Log.e("UserRepository", "Error updating user: ${response.code()} ${response.message()}")
-                    null
-                }
-            } catch (e: Exception) {
-                Log.e("UserRepository", "Error updating user: ${e.message}")
-                null
-            }
-        }
-    }
-
     suspend fun getAllUsers(): List<User>? {
         return withContext(Dispatchers.IO) {
             try {
@@ -60,15 +43,4 @@ class UserRepository(private val context: Context) {
         }
     }
 
-    suspend fun deleteUser(userId: String): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val response = apiService.deleteUser(userId)
-                response.isSuccessful
-            } catch (e: Exception) {
-                Log.e("UserRepository", "Error deleting user: ${e.message}")
-                false
-            }
-        }
-    }
 }

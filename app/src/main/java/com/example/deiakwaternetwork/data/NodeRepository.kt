@@ -30,11 +30,11 @@ class NodeRepository(private val context: Context) {
     suspend fun createNode(node: Node): Node? {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.createNode(node) // Make sure this is a POST request
+                val response = apiService.createNode(node)
                 if (response.isSuccessful) {
                     response.body()
                 } else {
-                    Log.e("NodeRepository", "Error creating node: ${response.code()} ${response.message()}") // Log error details
+                    Log.e("NodeRepository", "Error creating node: ${response.code()} ${response.message()}")
                     null
                 }
             } catch (e: Exception) {

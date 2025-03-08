@@ -43,13 +43,10 @@ class LoginActivity : AppCompatActivity() {
                     val loginRequest = LoginRequest(email, password)
                     val loginResponse = authRepository.login(loginRequest)
                     if (loginResponse != null) {
-                        // Login successful
-                        Log.d("LoginActivity", "Login successful: ${loginResponse.accessToken}") // Access accessToken
-                        // Start MainActivity or the appropriate Activity
+                        Log.d("LoginActivity", "Login successful: ${loginResponse.accessToken}")
                         startActivity(Intent(this@LoginActivity, MainActivity::class.java))
-                        finish() // Optional: Finish LoginActivity to prevent going back
+                        finish()
                     } else {
-                        // Login failed
                         Toast.makeText(this@LoginActivity, "Login failed", Toast.LENGTH_SHORT).show()
                     }
                 }

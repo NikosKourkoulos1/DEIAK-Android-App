@@ -59,8 +59,8 @@ class AuthRepository(private val context: Context) {
                 if (response.isSuccessful) {
                     val loginResponse = response.body()
                     loginResponse?.let {
-                        storeToken(it.accessToken) // Store accessToken
-                        storeRefreshToken(it.refreshToken) // Store refreshToken
+                        storeToken(it.accessToken)
+                        storeRefreshToken(it.refreshToken)
                         storeUserRole(it.role)
                     }
                     loginResponse

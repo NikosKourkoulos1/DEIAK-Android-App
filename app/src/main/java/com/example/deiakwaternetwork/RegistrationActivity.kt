@@ -44,28 +44,18 @@ class RegistrationActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     try {
                         val registerRequest = RegisterRequest(name, email, password, role)
-
-                        // Log the request for debugging
-                        Log.d("RegistrationActivity", "RegisterRequest: $registerRequest")
-
                         val registrationSuccessful = authRepository.register(registerRequest)
                         if (registrationSuccessful) {
-                            // Registration successful
                             Log.d("RegistrationActivity", "Registration successful")
                             Toast.makeText(this@RegistrationActivity, "Registration successful", Toast.LENGTH_SHORT).show()
-
-                            // Start LoginActivity
                             val intent = Intent(this@RegistrationActivity, LoginActivity::class.java)
                             startActivity(intent)
-
-                            finish() // Optional: Finish RegistrationActivity
+                            finish()
                         } else {
-                            // Registration failed (API returned an error)
                             Log.e("RegistrationActivity", "Registration failed (API error)")
                             Toast.makeText(this@RegistrationActivity, "Registration failed", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
-                        // Exception occurred during registration
                         Log.e("RegistrationActivity", "Registration error: ${e.message}", e) // Log the exception with stack trace
                         val errorMessage = when (e) {
                             is HttpException -> "Registration failed: Network error" // More specific error message for HTTP exceptions
@@ -103,8 +93,6 @@ class RegistrationActivity : AppCompatActivity() {
             passwordEditText.error = "Password must be at least 6 characters"
             return false
         }
-        // Add more validation rules as needed (e.g., for password complexity)
-
-        return true // Return true if all validation passes
+        return true
     }
 }

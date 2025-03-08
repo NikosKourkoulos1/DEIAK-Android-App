@@ -8,6 +8,6 @@ data class Node(
     val capacity: Int?,
     val status: String,
     val description: String,
-    val createdAt: String?, // Make createdAt nullable
-    val updatedAt: String?  // Make updatedAt nullable
+    val createdAt: String?,
+    val updatedAt: String?
 )

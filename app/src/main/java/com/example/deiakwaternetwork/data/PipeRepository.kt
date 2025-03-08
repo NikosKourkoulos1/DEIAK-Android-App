@@ -70,26 +70,4 @@ class PipeRepository(private val context: Context) {
             }
         }
     }
-    suspend fun searchPipes(
-        status: String? = null,
-        minFlow: Double? = null,
-        maxFlow: Double? = null,
-        minLength: Double? = null,
-        maxLength: Double? = null
-    ): List<Pipe>? {
-        return withContext(Dispatchers.IO) {
-            try {
-                val response = apiService.searchPipes(status, minFlow, maxFlow, minLength, maxLength) // Removed nulls
-                if (response.isSuccessful) {
-                    response.body()
-                } else {
-                    Log.e("PipeRepository", "Error searching pipes: ${response.code()} ${response.message()}")
-                    null
-                }
-            } catch (e: Exception) {
-                Log.e("PipeRepository", "Error searching pipes: ${e.message}")
-                null
-            }
-        }
-    }
 }
